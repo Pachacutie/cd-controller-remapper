@@ -1,50 +1,84 @@
-# CRIMSON_DESERT — Crimson Desert Modding
+# Crimson Desert Controller Remapper
 
-Mod creation workspace for Crimson Desert (BlackSpace Engine).
+Remap your gamepad controls in Crimson Desert. The game has no built-in controller remapping — this tool patches the input bindings directly.
 
-## Mods
+Instead of cryptic button swaps, you see actual game actions (Sprint, Dodge, Jump) and assign them to the buttons you want. Auto-swap ensures no two actions share a button.
 
-### No Sleep Cooldown (`mod/no_sleep_cooldown.json`)
+## Features
 
-Removes the time-gated cooldown on sleeping and resting at beds. All 3h/6h/12h options always available.
+- **Action-based remapping** — see game actions, not raw button IDs
+- **Three context tabs** — Combat (16 actions), Menus (8), Horse (7)
+- **Auto-swap** — reassigning an action automatically moves the displaced action
+- **Interactive controller diagram** — click buttons or use your gamepad
+- **Built-in presets** — Soulslike, Southpaw, Trigger Swap
+- **Custom profiles** — save and load your own layouts
+- **Safe** — patches go to the `0036/` overlay directory; vanilla files are never touched
+- **Undo** — one click restores all original bindings
 
-**How it works:** Patches three `.pastage` sequencer files in PAZ folder 0014:
-- `cd_seq_minigame_sleep.pastage` — Sleep UI: enables greyed-out duration options
-- `gimmick_sleep_bed_left.pastage` — Left bed: bypasses cooldown state gate
-- `gimmick_sleep_bed_right.pastage` — Right bed: bypasses cooldown state gate
+## Quick Start
 
-Two patch types:
-- `"False"` → `"True "` — Re-enables disabled UI options
-- `"NEGATIVE"` → `"START"`/`"COMPLETE"` — Changes state machine from rejection to acceptance
+1. Download `cd_remap.exe` from [Releases](https://github.com/Pachacutie/cd-controller-remapper/releases)
+2. Run it — the GUI opens automatically
+3. Pick a preset or click actions to remap them
+4. Click **Apply**
+5. Launch Crimson Desert
 
-## Tools
+To undo: reopen the tool and click **Undo All**.
 
-### apply_mod.py
+## Built-in Presets
 
-Applies or removes a JSON byte-patch mod by building a PAZ overlay (`0036/`) and updating the PAPGT hash registry. Backs up `meta/0.papgt` before first modification.
+| Preset | What it does |
+|---|---|
+| **Soulslike** | Sprint on B, Dodge on A, Jump on Y, Kick on X |
+| **Southpaw** | Swaps stick clicks and bumpers |
+| **Trigger Swap** | Swaps triggers and bumpers |
+
+## Running from Source
+
+Requires Python 3.12+, [Dear PyGui](https://github.com/hoffstadt/DearPyGui), and [XInput-Python](https://github.com/Zuzu-Typ/XInput-Python).
 
 ```bash
-# Apply
-python tools/apply_mod.py apply mod/no_sleep_cooldown.json [--dry-run]
-
-# Remove (restores vanilla PAPGT from backup, deletes 0036/)
-python tools/apply_mod.py remove
+pip install dearpygui XInput-Python
+cd cd-controller-remapper
+python -m cd_remap --game-dir "path/to/Crimson Desert"
 ```
 
-### verify_patch.py
+### CLI
 
-Verifies that a JSON byte-patch mod's offsets match the current game files.
+```
+cd_remap                          # Launch GUI (default)
+cd_remap --tui                    # Text-based UI
+cd_remap apply config.json        # Apply from JSON config
+cd_remap remove                   # Restore vanilla bindings
+cd_remap show                     # List current gamepad bindings
+cd_remap interactive              # Launch TUI (legacy alias)
+```
+
+### Building the exe
 
 ```bash
-python tools/verify_patch.py mod/no_sleep_cooldown.json
+pip install pyinstaller
+python build/build_exe.py
+# Output: dist/cd_remap.exe
 ```
 
-Both tools require CDUMM (`D:\Games\Modding\Tools\CDUMM\.venv`).
+## How It Works
 
-## Toolchain
+Crimson Desert stores gamepad bindings in `inputmap_common.xml` inside PAZ archive `0008`. The tool:
 
-- **CDUMM** (MIT, Python): `D:\Games\Modding\Tools\CDUMM\` — PAZ/PAMT parsing, overlay building
-- **Backups**: `D:\Games\Modding\Crimson Desert\BACKUP_PRISTINE\`
+1. Extracts the XML from the encrypted PAZ archive
+2. Swaps `GamePad Key=` values based on your assignments
+3. Writes the patched XML to the `0036/` mod overlay directory
+4. The game loads `0036/` over the originals — vanilla is never modified
+
+Undo deletes the overlay and restores the original PAPGT hash registry from backup.
+
+## Tests
+
+```bash
+pip install pytest
+python -m pytest tests/ -v    # 72 tests
+```
 
 ## License
 
