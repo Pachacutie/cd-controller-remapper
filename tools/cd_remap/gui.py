@@ -1,34 +1,36 @@
-"""Dear PyGui main window — layout, state management, callbacks."""
+"""Dear PyGui main window — action-based controller remapping."""
 import dearpygui.dearpygui as dpg
 from pathlib import Path
 
 from . import VERSION
 from .gamepad import GamepadPoller
 from .remap import (
-    VALID_BUTTONS,
-    ANALOG_BUTTONS,
     _apply_patched_xml,
     apply_swaps_contextual,
     extract_xml,
     remove_remap,
-    show_bindings,
 )
-from .contexts import validate_swaps_contextual, VALID_CONTEXTS
+from .actions import (
+    ALL_CONTEXTS,
+    CONTEXT_TO_SWAP_CONTEXT,
+    auto_swap,
+    diff_to_swaps,
+    get_action_list,
+    get_button_action_labels,
+    get_defaults,
+)
 from .presets import (
-    BUILTIN_PRESETS,
-    save_profile,
-    load_profile,
+    BUILTIN_PRESETS_V3,
+    save_profile_v3,
+    load_profile_v3,
     list_profiles,
     delete_profile,
-    DEFAULT_PROFILES_DIR,
 )
 from .controller_draw import (
-    BUTTON_POSITIONS,
     CLICKABLE_BUTTONS,
     draw_controller_body,
     draw_all_buttons,
     draw_all_action_labels,
-    draw_action_label,
     hit_test,
     update_button_color,
     get_pair_color,
@@ -45,455 +47,299 @@ BUTTON_DISPLAY = {
     "select": "Select", "start": "Start",
 }
 
-# Curated primary action labels per button (from game data analysis)
-_FRIENDLY_LABELS = {
-    "buttonA": "Confirm",
-    "buttonB": "Cancel",
-    "buttonX": "Action",
-    "buttonY": "Interact",
-    "buttonLB": "Tab L",
-    "buttonRB": "Tab R",
-    "buttonLT": "Aim",
-    "buttonRT": "Attack",
-    "buttonLS": "L-Click",
-    "buttonRS": "R-Click",
-    "select": "View",
-    "start": "Menu",
-}
-# D-pad, analog sticks: no labels (navigation/movement, too generic)
-
-
-def _pick_friendly_label(btn_id: str) -> str:
-    """Get a short friendly label for a button."""
-    return _FRIENDLY_LABELS.get(btn_id, "")
+COLOR_CHANGED = (0, 200, 200, 255)
 
 
 class RemapGUI:
     def __init__(self, game_dir: Path):
         self.game_dir = game_dir
-        self.swaps: list[dict] = []
-        self.selected_button: str | None = None
-        self.active_profile: str | None = None
-        self.pair_index = 0
-        self.button_pair_map: dict[str, int] = {}
-        self.drawlist = None
-        self.hovered_button: str | None = None
         self.gamepad = GamepadPoller()
-        self.binding_counts: dict[str, int] = {}
-        self.combo_buttons: dict[str, list[str]] = {}
-        self.button_labels: dict[str, str] = {}
-        self._load_binding_counts()
+        self.active_tab = "combat"
+        self.selected_action: str | None = None
+        self.active_profile: str | None = None
+        self.hovered_button: str | None = None
+        self.drawlist = None
 
-    def _load_binding_counts(self):
-        try:
-            bindings = show_bindings(self.game_dir)
-            for b in bindings:
-                tokens = b["key"].split()
-                for btn in VALID_BUTTONS:
-                    if btn in tokens:
-                        self.binding_counts[btn] = self.binding_counts.get(btn, 0) + 1
-                if len(tokens) > 1:
-                    for btn in tokens:
-                        self.combo_buttons.setdefault(btn, []).append(b["key"])
-        except (FileNotFoundError, OSError):
-            pass
+        # Action assignments per context: {context: {action_name: button_id}}
+        self.assignments: dict[str, dict[str, str]] = {}
+        for ctx in ALL_CONTEXTS:
+            self.assignments[ctx] = get_defaults(ctx)
 
-        # Curated labels (not derived from game data — too noisy)
-        for btn in VALID_BUTTONS:
-            label = _pick_friendly_label(btn)
-            if label:
-                self.button_labels[btn] = label
+    def _get_changed_buttons(self) -> set[str]:
+        """Buttons that differ from default in the active tab."""
+        defaults = get_defaults(self.active_tab)
+        current = self.assignments[self.active_tab]
+        return {current[a] for a in current if current[a] != defaults.get(a)}
 
-    def _get_context(self) -> str:
-        val = dpg.get_value("context_radio")
-        mapping = {"All": "all", "Gameplay": "gameplay", "Menus": "menus"}
-        return mapping.get(val, "all")
+    def _on_tab_change(self, sender, app_data):
+        tab_map = {"tab_combat": "combat", "tab_menus": "menus", "tab_horse": "horse"}
+        self.active_tab = tab_map.get(app_data, "combat")
+        self.selected_action = None
+        self._refresh_action_list()
+        self._refresh_controller()
 
-    def _swapped_buttons(self) -> set[str]:
-        return {s["source"] for s in self.swaps}
-
-    def _add_swap_pair(self, src: str, tgt: str, ctx: str | None = None):
-        if ctx is None:
-            ctx = self._get_context()
-        self.swaps.append({"source": src, "target": tgt, "context": ctx})
-        self.swaps.append({"source": tgt, "target": src, "context": ctx})
-
-        color_idx = self.pair_index
-        self.button_pair_map[src] = color_idx
-        self.button_pair_map[tgt] = color_idx
-        self.pair_index += 1
-
-        self._refresh_controller_colors()
-        self._refresh_swap_list()
-        self._refresh_warnings()
-        self._set_status(f"Added: {BUTTON_DISPLAY[src]} <-> {BUTTON_DISPLAY[tgt]} ({ctx})")
-
-    def _remove_swap_pair(self, btn: str):
-        partner = None
-        ctx = None
-        for s in self.swaps:
-            if s["source"] == btn:
-                partner = s["target"]
-                ctx = s["context"]
-                break
-        if partner is None:
-            return
-
-        self.swaps = [s for s in self.swaps
-                      if not (s["context"] == ctx and s["source"] in (btn, partner))]
-        self.button_pair_map.pop(btn, None)
-        self.button_pair_map.pop(partner, None)
-
-        self._refresh_controller_colors()
-        self._refresh_swap_list()
-        self._refresh_warnings()
-        self._set_status(f"Removed: {BUTTON_DISPLAY[btn]} <-> {BUTTON_DISPLAY[partner]}")
-
-    def _clear_all_swaps(self):
-        self.swaps.clear()
-        self.button_pair_map.clear()
-        self.pair_index = 0
-        self.selected_button = None
-        self._refresh_controller_colors()
-        self._refresh_swap_list()
-        self._refresh_warnings()
+    def _on_action_click(self, sender, app_data, user_data):
+        action_name = user_data
+        self.selected_action = action_name
+        btn = self.assignments[self.active_tab][action_name]
+        update_button_color(self.drawlist, btn, COLOR_SELECTED)
+        self._set_status(f"Press a button for {action_name}...")
 
     def _on_controller_click(self, sender, app_data):
         mouse_pos = dpg.get_drawing_mouse_pos()
-        # Only handle clicks within the drawlist area (450x300)
         if not (0 <= mouse_pos[0] <= 450 and 0 <= mouse_pos[1] <= 300):
             return
         btn = hit_test(mouse_pos[0], mouse_pos[1])
-        if btn is None:
-            if self.selected_button:
-                self.selected_button = None
-                self._refresh_controller_colors()
-            return
-
-        swapped = self._swapped_buttons()
-
-        if btn in swapped:
-            self._remove_swap_pair(btn)
-            self.selected_button = None
-            return
-
-        if self.selected_button is None:
-            if btn in CLICKABLE_BUTTONS:
-                self.selected_button = btn
-                update_button_color(self.drawlist, btn, COLOR_SELECTED)
-                self._set_status(f"Swap {BUTTON_DISPLAY[btn]} with...")
-        else:
-            if btn == self.selected_button:
-                self.selected_button = None
-                self._refresh_controller_colors()
-                self._set_status("Cancelled.")
-            elif btn in swapped:
-                self._set_status(f"{BUTTON_DISPLAY[btn]} is already swapped. Remove it first.")
-            else:
-                src = self.selected_button
-                self.selected_button = None
-
-                if src in ANALOG_BUTTONS or btn in ANALOG_BUTTONS:
-                    self._set_status(
-                        f"Warning: swapping analog sticks also swaps axis scaling. "
-                        f"Added {BUTTON_DISPLAY[src]} <-> {BUTTON_DISPLAY[btn]}"
-                    )
-
-                self._add_swap_pair(src, btn)
+        self._handle_button_input(btn)
 
     def _on_gamepad_button(self, btn: str):
-        """Handle a physical gamepad button press — same flow as controller click."""
-        swapped = self._swapped_buttons()
+        if self.selected_action:
+            self._handle_button_input(btn)
 
-        if btn in swapped:
-            self._remove_swap_pair(btn)
-            self.selected_button = None
+    def _handle_button_input(self, btn: str | None):
+        if btn is None:
+            if self.selected_action:
+                self.selected_action = None
+                self._refresh_controller()
+                self._set_status("Cancelled.")
             return
 
-        if self.selected_button is None:
-            self.selected_button = btn
-            update_button_color(self.drawlist, btn, COLOR_SELECTED)
-            self._set_status(f"Swap {BUTTON_DISPLAY.get(btn, btn)} with...")
-        elif btn == self.selected_button:
-            self.selected_button = None
-            self._refresh_controller_colors()
-            self._set_status("Cancelled.")
-        elif btn in swapped:
-            self._set_status(f"{BUTTON_DISPLAY.get(btn, btn)} is already swapped. Remove it first.")
-        else:
-            src = self.selected_button
-            self.selected_button = None
-            self._add_swap_pair(src, btn)
+        if not self.selected_action:
+            # No action selected — find what action is on this button and select it
+            current = self.assignments[self.active_tab]
+            for action_name, assigned_btn in current.items():
+                if assigned_btn == btn:
+                    self.selected_action = action_name
+                    update_button_color(self.drawlist, btn, COLOR_SELECTED)
+                    self._set_status(f"Press a button for {action_name}...")
+                    return
+            return
 
-    def _get_button_color(self, btn_id: str) -> tuple:
-        """Get the current color a button should be (swap pair, selected, or default)."""
-        if btn_id in self.button_pair_map:
-            return get_pair_color(self.button_pair_map[btn_id])
-        if btn_id == self.selected_button:
-            return COLOR_SELECTED
-        return COLOR_DEFAULT
+        # Action is selected — assign it to this button
+        action = self.selected_action
+        old_btn = self.assignments[self.active_tab][action]
+
+        if btn == old_btn:
+            self.selected_action = None
+            self._refresh_controller()
+            self._set_status("Cancelled.")
+            return
+
+        self.assignments[self.active_tab] = auto_swap(
+            self.assignments[self.active_tab], action, btn,
+        )
+        self.selected_action = None
+
+        # Find what was displaced
+        displaced = None
+        for a, b in self.assignments[self.active_tab].items():
+            if b == old_btn and a != action:
+                displaced = a
+                break
+
+        if displaced:
+            self._set_status(
+                f"{action} -> [{BUTTON_DISPLAY.get(btn, btn)}], "
+                f"{displaced} -> [{BUTTON_DISPLAY.get(old_btn, old_btn)}]"
+            )
+        else:
+            self._set_status(f"{action} -> [{BUTTON_DISPLAY.get(btn, btn)}]")
+
+        self._refresh_action_list()
+        self._refresh_controller()
 
     def _on_mouse_move(self, sender, app_data):
         mouse_pos = dpg.get_drawing_mouse_pos()
         in_drawlist = 0 <= mouse_pos[0] <= 450 and 0 <= mouse_pos[1] <= 300
         if not in_drawlist:
             if self.hovered_button:
-                update_button_color(self.drawlist, self.hovered_button,
-                                    self._get_button_color(self.hovered_button))
-                self.hovered_button = None
+                self._unhover()
             return
 
         btn = hit_test(mouse_pos[0], mouse_pos[1])
-
         if btn == self.hovered_button:
             return
 
-        # Unhover previous
         if self.hovered_button:
-            update_button_color(self.drawlist, self.hovered_button,
-                                self._get_button_color(self.hovered_button))
+            self._unhover()
 
-        # Hover new
         if btn and btn in CLICKABLE_BUTTONS:
-            # Brighten: blend toward white for swap-colored buttons, use HOVER for default
             base = self._get_button_color(btn)
-            if base == COLOR_DEFAULT:
-                hover_color = COLOR_HOVER
-            else:
-                hover_color = tuple(min(255, c + 60) for c in base[:3]) + (255,)
+            hover_color = COLOR_HOVER if base == COLOR_DEFAULT else tuple(min(255, c + 60) for c in base[:3]) + (255,)
             update_button_color(self.drawlist, btn, hover_color)
             self.hovered_button = btn
         else:
             self.hovered_button = None
 
-    def _refresh_controller_colors(self):
+    def _unhover(self):
+        if self.hovered_button:
+            update_button_color(self.drawlist, self.hovered_button,
+                                self._get_button_color(self.hovered_button))
+            self.hovered_button = None
+
+    def _get_button_color(self, btn_id: str) -> tuple:
+        changed = self._get_changed_buttons()
+        if btn_id in changed:
+            return COLOR_CHANGED
+        return COLOR_DEFAULT
+
+    def _refresh_controller(self):
         self.hovered_button = None
         for btn_id in CLICKABLE_BUTTONS:
             update_button_color(self.drawlist, btn_id, self._get_button_color(btn_id))
-        self._refresh_action_labels()
-
-    def _get_effective_labels(self) -> dict[str, str]:
-        """Get action labels accounting for current swaps."""
-        labels = dict(self.button_labels)
-        # For each swap pair, exchange labels
-        seen = set()
-        for swap in self.swaps:
-            pair = tuple(sorted([swap["source"], swap["target"]]))
-            if pair in seen:
-                continue
-            seen.add(pair)
-            src, tgt = swap["source"], swap["target"]
-            labels[src], labels[tgt] = self.button_labels.get(tgt, ""), self.button_labels.get(src, "")
-        return labels
-
-    def _refresh_action_labels(self):
-        """Redraw action labels on the controller to reflect current swaps."""
-        if not self.drawlist:
-            return
-        labels = self._get_effective_labels()
+        labels = get_button_action_labels(self.active_tab, self.assignments[self.active_tab])
         draw_all_action_labels(self.drawlist, labels)
 
-    def _refresh_swap_list(self):
-        if dpg.does_item_exist("swap_list_group"):
-            dpg.delete_item("swap_list_group", children_only=True)
-
-        seen_pairs = set()
-        for swap in self.swaps:
-            pair_key = tuple(sorted([swap["source"], swap["target"]])) + (swap["context"],)
-            if pair_key in seen_pairs:
-                continue
-            seen_pairs.add(pair_key)
-
-            src_disp = BUTTON_DISPLAY[swap["source"]]
-            tgt_disp = BUTTON_DISPLAY[swap["target"]]
-            ctx = swap["context"].capitalize()
-            color_idx = self.button_pair_map.get(swap["source"], 0)
-            color = get_pair_color(color_idx)
-
-            with dpg.group(horizontal=True, parent="swap_list_group"):
-                dpg.add_text(f"{src_disp} <-> {tgt_disp}  ({ctx})", color=color[:3])
-                dpg.add_button(
-                    label="x",
-                    callback=lambda s, a, u: self._remove_swap_pair(u),
-                    user_data=swap["source"], width=20, height=20,
-                )
-
-    def _check_conflicts(self) -> list[str]:
-        """Check current swaps for conflicts and warnings. Returns warning strings."""
-        warnings = []
-
-        # Validation errors from the context system
-        errors = validate_swaps_contextual(self.swaps)
-        for e in errors:
-            warnings.append(f"[Error] {e}")
-
-        # Combo key impact warnings
-        swapped_btns = {s["source"] for s in self.swaps}
-        for btn in swapped_btns:
-            combos = self.combo_buttons.get(btn, [])
-            if combos:
-                n = len(set(combos))
-                disp = BUTTON_DISPLAY.get(btn, btn)
-                warnings.append(
-                    f"[Info] {disp} is used in {n} combo binding{'s' if n != 1 else ''} "
-                    f"(e.g., {combos[0]}) — combos will also be remapped"
-                )
-
-        return warnings
-
-    def _refresh_warnings(self):
-        """Update the warnings display area."""
-        if not dpg.does_item_exist("warnings_group"):
+    def _refresh_action_list(self):
+        if not dpg.does_item_exist("action_list_group"):
             return
-        dpg.delete_item("warnings_group", children_only=True)
-        warnings = self._check_conflicts()
-        for w in warnings:
-            if w.startswith("[Error]"):
-                color = (255, 80, 80)
-            else:
-                color = (255, 200, 80)
-            dpg.add_text(w, color=color, parent="warnings_group", wrap=500)
+        dpg.delete_item("action_list_group", children_only=True)
 
-    def _refresh_sidebar(self):
-        if dpg.does_item_exist("sidebar_group"):
-            dpg.delete_item("sidebar_group", children_only=True)
+        defaults = get_defaults(self.active_tab)
+        current = self.assignments[self.active_tab]
+        actions = get_action_list(self.active_tab)
 
-        dpg.add_text("PRESETS", color=(200, 200, 200), parent="sidebar_group")
-        dpg.add_separator(parent="sidebar_group")
-        for name in BUILTIN_PRESETS:
+        for action in actions:
+            btn = current.get(action.name, action.default_btn)
+            btn_label = BUTTON_DISPLAY.get(btn, btn)
+            is_changed = btn != defaults.get(action.name)
+            color = (0, 200, 200) if is_changed else (180, 180, 180)
+
+            with dpg.group(horizontal=True, parent="action_list_group"):
+                dpg.add_text(f"{action.name}", color=color)
+                dpg.add_spacer(width=10)
+                dpg.add_button(
+                    label=f"[{btn_label}]",
+                    callback=self._on_action_click,
+                    user_data=action.name,
+                    width=50,
+                )
+
+    def _refresh_presets(self):
+        if not dpg.does_item_exist("presets_group"):
+            return
+        dpg.delete_item("presets_group", children_only=True)
+
+        for name in BUILTIN_PRESETS_V3:
             dpg.add_button(
                 label=name, width=-1,
                 callback=lambda s, a, u: self._load_preset(u),
-                user_data=name, parent="sidebar_group",
+                user_data=name, parent="presets_group",
             )
 
-        dpg.add_spacer(height=10, parent="sidebar_group")
-        dpg.add_text("PROFILES", color=(200, 200, 200), parent="sidebar_group")
-        dpg.add_separator(parent="sidebar_group")
+        dpg.add_spacer(height=8, parent="presets_group")
+        dpg.add_separator(parent="presets_group")
+        dpg.add_text("Profiles", color=(200, 200, 200), parent="presets_group")
+
         for slug in list_profiles():
             dpg.add_button(
                 label=slug, width=-1,
-                callback=lambda s, a, u: self._load_profile_by_slug(u),
-                user_data=slug, parent="sidebar_group",
+                callback=lambda s, a, u: self._load_profile(u),
+                user_data=slug, parent="presets_group",
             )
 
     def _load_preset(self, name: str):
-        self._clear_all_swaps()
+        preset = BUILTIN_PRESETS_V3[name]
+        for ctx in ALL_CONTEXTS:
+            defaults = get_defaults(ctx)
+            self.assignments[ctx] = dict(defaults)
+            for action_name, btn in preset.get(ctx, {}).items():
+                if action_name in self.assignments[ctx]:
+                    self.assignments[ctx] = auto_swap(self.assignments[ctx], action_name, btn)
         self.active_profile = None
-        swaps = BUILTIN_PRESETS[name]
-        seen = set()
-        for swap in swaps:
-            pair = tuple(sorted([swap["source"], swap["target"]]))
-            if pair in seen:
-                continue
-            seen.add(pair)
-            self._add_swap_pair(swap["source"], swap["target"], swap["context"])
+        self.selected_action = None
+        self._refresh_action_list()
+        self._refresh_controller()
         self._set_status(f"Loaded preset: {name}")
 
-    def _load_profile_by_slug(self, slug: str):
+    def _load_profile(self, slug: str):
         try:
-            data = load_profile(slug)
-            self._clear_all_swaps()
+            data = load_profile_v3(slug)
+            for ctx in ALL_CONTEXTS:
+                defaults = get_defaults(ctx)
+                self.assignments[ctx] = dict(defaults)
+                for action_name, btn in data.get(ctx, {}).items():
+                    if action_name in self.assignments[ctx]:
+                        self.assignments[ctx] = auto_swap(self.assignments[ctx], action_name, btn)
             self.active_profile = slug
-            seen = set()
-            for swap in data["swaps"]:
-                pair = tuple(sorted([swap["source"], swap["target"]]))
-                if pair in seen:
-                    continue
-                seen.add(pair)
-                self._add_swap_pair(swap["source"], swap["target"], swap["context"])
+            self.selected_action = None
+            self._refresh_action_list()
+            self._refresh_controller()
             self._set_status(f"Loaded profile: {data.get('name', slug)}")
-        except Exception as e:
-            self._set_status(f"Error loading profile: {e}")
-
-    def _on_save(self):
-        if not self.active_profile:
-            self._set_status("No profile loaded. Use 'Save As' to create one.")
-            return
-        try:
-            data = load_profile(self.active_profile)
-            save_profile(data["name"], self.swaps)
-            self._set_status(f"Saved: {data['name']}")
-        except Exception as e:
-            self._set_status(f"Error saving: {e}")
-
-    def _on_save_as(self):
-        dpg.configure_item("save_as_modal", show=True)
-
-    def _on_save_as_confirm(self):
-        name = dpg.get_value("save_as_name_input")
-        if not name.strip():
-            return
-        dpg.configure_item("save_as_modal", show=False)
-        try:
-            path = save_profile(name.strip(), self.swaps)
-            self.active_profile = path.stem
-            self._refresh_sidebar()
-            self._set_status(f"Saved as: {name.strip()}")
         except Exception as e:
             self._set_status(f"Error: {e}")
 
-    def _on_delete(self):
-        if not self.active_profile:
-            self._set_status("No profile selected to delete.")
-            return
-        dpg.configure_item("delete_confirm_modal", show=True)
+    def _on_reset(self):
+        for ctx in ALL_CONTEXTS:
+            self.assignments[ctx] = get_defaults(ctx)
+        self.selected_action = None
+        self._refresh_action_list()
+        self._refresh_controller()
+        self._set_status("Reset to defaults.")
 
-    def _on_delete_confirm(self):
-        dpg.configure_item("delete_confirm_modal", show=False)
-        try:
-            delete_profile(self.active_profile)
-            self._clear_all_swaps()
-            self.active_profile = None
-            self._refresh_sidebar()
-            self._set_status("Profile deleted.")
-        except Exception as e:
-            self._set_status(f"Error deleting: {e}")
+    def _on_save(self):
+        dpg.configure_item("save_as_modal", show=True)
 
-    def _on_dry_run(self):
-        errors = validate_swaps_contextual(self.swaps)
-        if errors:
-            self._set_status(f"Validation error: {errors[0]}")
+    def _on_save_confirm(self):
+        name = dpg.get_value("save_name_input")
+        if not name.strip():
             return
+        dpg.configure_item("save_as_modal", show=False)
+        # Only save changed-from-default actions
+        save_data = {}
+        for ctx in ALL_CONTEXTS:
+            defaults = get_defaults(ctx)
+            changed = {a: b for a, b in self.assignments[ctx].items() if b != defaults.get(a)}
+            save_data[ctx] = changed
         try:
-            xml = extract_xml(self.game_dir)
-            patched = apply_swaps_contextual(xml, self.swaps)
-            affected = sum(1 for a, b in zip(xml.split(b"\n"), patched.split(b"\n")) if a != b)
-            self._set_status(f"Dry run: {affected} bindings would change.")
+            path = save_profile_v3(name.strip(), save_data)
+            self.active_profile = path.stem
+            self._refresh_presets()
+            self._set_status(f"Saved: {name.strip()}")
         except Exception as e:
             self._set_status(f"Error: {e}")
 
     def _on_apply(self):
-        errors = validate_swaps_contextual(self.swaps)
-        if errors:
-            self._set_status(f"Validation error: {errors[0]}")
-            return
-        dpg.configure_item("apply_confirm_modal", show=True)
+        dpg.configure_item("apply_modal", show=True)
 
     def _on_apply_confirm(self):
-        dpg.configure_item("apply_confirm_modal", show=False)
+        dpg.configure_item("apply_modal", show=False)
         try:
+            # Collect swaps from all contexts
+            all_swaps = []
+            for ctx in ALL_CONTEXTS:
+                defaults = get_defaults(ctx)
+                swap_ctx = CONTEXT_TO_SWAP_CONTEXT[ctx]
+                swaps = diff_to_swaps(defaults, self.assignments[ctx], swap_ctx)
+                all_swaps.extend(swaps)
+
+            # Deduplicate (combat and horse share gameplay context)
+            seen = set()
+            unique_swaps = []
+            for s in all_swaps:
+                key = (s["source"], s["target"], s["context"])
+                if key not in seen:
+                    seen.add(key)
+                    unique_swaps.append(s)
+
+            if not unique_swaps:
+                self._set_status("No changes to apply.")
+                return
+
             xml = extract_xml(self.game_dir)
-            patched = apply_swaps_contextual(xml, self.swaps)
+            patched = apply_swaps_contextual(xml, unique_swaps)
             result = _apply_patched_xml(patched, self.game_dir)
             if result["ok"]:
                 self._set_status(f"Applied! {result['affected']} bindings remapped.")
             else:
-                self._set_status(f"Error: {result.get('errors', ['Unknown'])[0]}")
+                self._set_status("Error applying remap.")
         except Exception as e:
             self._set_status(f"Error: {e}")
 
     def _on_undo(self):
-        dpg.configure_item("undo_confirm_modal", show=True)
-
-    def _on_undo_confirm(self):
-        dpg.configure_item("undo_confirm_modal", show=False)
         try:
             result = remove_remap(self.game_dir)
-            if result["ok"]:
-                self._set_status(f"Undo: {result['message']}")
-            else:
-                self._set_status(f"Error: {result.get('message', 'Unknown')}")
+            self._set_status(f"Undo: {result.get('message', 'Done')}")
         except Exception as e:
             self._set_status(f"Error: {e}")
 
@@ -512,95 +358,69 @@ class RemapGUI:
                 dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 4)
                 dpg.add_theme_style(dpg.mvStyleVar_WindowRounding, 6)
 
-        # Save As modal
-        with dpg.window(label="Save As", modal=True, show=False,
+        # Save modal
+        with dpg.window(label="Save Profile", modal=True, show=False,
                         tag="save_as_modal", width=300, height=100, no_resize=True):
-            dpg.add_input_text(tag="save_as_name_input", hint="Profile name...", width=-1)
+            dpg.add_input_text(tag="save_name_input", hint="Profile name...", width=-1)
             with dpg.group(horizontal=True):
-                dpg.add_button(label="Save", callback=self._on_save_as_confirm)
+                dpg.add_button(label="Save", callback=self._on_save_confirm)
                 dpg.add_button(label="Cancel",
                                callback=lambda: dpg.configure_item("save_as_modal", show=False))
 
-        # Delete confirm modal
-        with dpg.window(label="Confirm Delete", modal=True, show=False,
-                        tag="delete_confirm_modal", width=300, height=80, no_resize=True):
-            dpg.add_text("Delete this profile permanently?")
-            with dpg.group(horizontal=True):
-                dpg.add_button(label="Delete", callback=self._on_delete_confirm)
-                dpg.add_button(label="Cancel",
-                               callback=lambda: dpg.configure_item("delete_confirm_modal", show=False))
-
-        # Apply confirm modal
+        # Apply modal
         with dpg.window(label="Confirm Apply", modal=True, show=False,
-                        tag="apply_confirm_modal", width=350, height=80, no_resize=True):
+                        tag="apply_modal", width=350, height=80, no_resize=True):
             dpg.add_text("Apply remap to game files? (Backup is automatic)")
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Apply", callback=self._on_apply_confirm)
                 dpg.add_button(label="Cancel",
-                               callback=lambda: dpg.configure_item("apply_confirm_modal", show=False))
-
-        # Undo confirm modal
-        with dpg.window(label="Confirm Undo", modal=True, show=False,
-                        tag="undo_confirm_modal", width=350, height=80, no_resize=True):
-            dpg.add_text("Remove all remaps and restore vanilla bindings?")
-            with dpg.group(horizontal=True):
-                dpg.add_button(label="Undo All", callback=self._on_undo_confirm)
-                dpg.add_button(label="Cancel",
-                               callback=lambda: dpg.configure_item("undo_confirm_modal", show=False))
+                               callback=lambda: dpg.configure_item("apply_modal", show=False))
 
         # Main window
         with dpg.window(tag="main_window"):
             dpg.add_text(f"CD Controller Remapper v{VERSION}")
             dpg.add_separator()
 
+            # Tab bar
+            with dpg.tab_bar(callback=self._on_tab_change):
+                dpg.add_tab(label="Combat", tag="tab_combat")
+                dpg.add_tab(label="Menus", tag="tab_menus")
+                dpg.add_tab(label="Horse", tag="tab_horse")
+
             with dpg.group(horizontal=True):
-                # Left sidebar
-                with dpg.child_window(width=140, height=-110, tag="sidebar_window"):
-                    with dpg.group(tag="sidebar_group"):
+                # Left: action list + presets
+                with dpg.child_window(width=220, height=-60):
+                    dpg.add_text("Actions", color=(200, 200, 200))
+                    dpg.add_separator()
+                    with dpg.group(tag="action_list_group"):
+                        pass
+                    dpg.add_spacer(height=10)
+                    dpg.add_separator()
+                    dpg.add_text("Presets", color=(200, 200, 200))
+                    with dpg.group(tag="presets_group"):
                         pass
 
-                # Center area — fixed height so bottom bar stays visible
-                with dpg.child_window(width=-120, height=-110):
+                # Right: controller diagram
+                with dpg.child_window(width=-1, height=-60):
+                    labels = get_button_action_labels(self.active_tab, None)
                     self.drawlist = dpg.add_drawlist(width=450, height=300, tag="controller_drawlist")
                     draw_controller_body(self.drawlist)
-                    draw_all_buttons(self.drawlist)
-                    draw_all_action_labels(self.drawlist, self.button_labels)
+                    draw_all_buttons(self.drawlist, labels)
 
                     with dpg.handler_registry():
                         dpg.add_mouse_click_handler(callback=self._on_controller_click)
                         dpg.add_mouse_move_handler(callback=self._on_mouse_move)
 
-                    dpg.add_separator()
-                    dpg.add_text("Active Swaps:")
-                    with dpg.group(tag="swap_list_group"):
-                        pass
-
-                # Right — context radio + controller status
-                with dpg.child_window(width=100, height=-110):
-                    dpg.add_text("Context", color=(200, 200, 200))
-                    dpg.add_radio_button(
-                        items=["All", "Gameplay", "Menus"],
-                        tag="context_radio", default_value="All",
-                    )
-                    dpg.add_spacer(height=10)
-                    dpg.add_separator()
-                    dpg.add_text("Controller:", color=(200, 200, 200))
-                    status = "Connected" if self.gamepad.connected else "Not detected"
-                    color = (100, 255, 100) if self.gamepad.connected else (150, 150, 150)
-                    dpg.add_text(status, tag="gamepad_status", color=color)
-
-            # Warnings area (compact)
-            with dpg.group(tag="warnings_group"):
-                pass
-
-            # Bottom action bar — always visible
+            # Bottom bar
             dpg.add_separator()
             with dpg.group(horizontal=True):
+                status = "Connected" if self.gamepad.connected else "Not detected"
+                color = (100, 255, 100) if self.gamepad.connected else (150, 150, 150)
+                dpg.add_text("Controller:", color=(200, 200, 200))
+                dpg.add_text(status, tag="gamepad_status", color=color)
+                dpg.add_spacer(width=20)
+                dpg.add_button(label="Reset", callback=self._on_reset)
                 dpg.add_button(label="Save", callback=self._on_save)
-                dpg.add_button(label="Save As...", callback=self._on_save_as)
-                dpg.add_button(label="Delete", callback=self._on_delete)
-                dpg.add_spacer(width=40)
-                dpg.add_button(label="Dry Run", callback=self._on_dry_run)
                 dpg.add_button(label="Apply", callback=self._on_apply)
                 dpg.add_button(label="Undo All", callback=self._on_undo)
 
@@ -610,21 +430,20 @@ class RemapGUI:
             )
 
         dpg.bind_theme(global_theme)
-        self._refresh_sidebar()
+        self._refresh_action_list()
+        self._refresh_presets()
 
         dpg.create_viewport(title=f"CD Controller Remapper v{VERSION}", width=800, height=550)
         dpg.setup_dearpygui()
         dpg.show_viewport()
         dpg.set_primary_window("main_window", True)
 
-        # Manual frame loop for gamepad polling
         prev_connected = self.gamepad.connected
         while dpg.is_dearpygui_running():
             btn = self.gamepad.poll()
             if btn:
                 self._on_gamepad_button(btn)
 
-            # Update controller status display on connection change
             if self.gamepad.connected != prev_connected:
                 prev_connected = self.gamepad.connected
                 if self.gamepad.connected:
