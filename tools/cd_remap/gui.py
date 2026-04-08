@@ -502,12 +502,12 @@ class RemapGUI:
 
             with dpg.group(horizontal=True):
                 # Left sidebar
-                with dpg.child_window(width=140, height=-60, tag="sidebar_window"):
+                with dpg.child_window(width=140, height=-110, tag="sidebar_window"):
                     with dpg.group(tag="sidebar_group"):
                         pass
 
-                # Center area
-                with dpg.group():
+                # Center area — fixed height so bottom bar stays visible
+                with dpg.child_window(width=-120, height=-110):
                     self.drawlist = dpg.add_drawlist(width=450, height=300, tag="controller_drawlist")
                     draw_controller_body(self.drawlist)
                     draw_all_buttons(self.drawlist)
@@ -522,7 +522,7 @@ class RemapGUI:
                         pass
 
                 # Right — context radio + controller status
-                with dpg.child_window(width=100, height=160):
+                with dpg.child_window(width=100, height=-110):
                     dpg.add_text("Context", color=(200, 200, 200))
                     dpg.add_radio_button(
                         items=["All", "Gameplay", "Menus"],
@@ -535,11 +535,11 @@ class RemapGUI:
                     color = (100, 255, 100) if self.gamepad.connected else (150, 150, 150)
                     dpg.add_text(status, tag="gamepad_status", color=color)
 
-            # Warnings area
+            # Warnings area (compact)
             with dpg.group(tag="warnings_group"):
                 pass
 
-            # Bottom action bar
+            # Bottom action bar — always visible
             dpg.add_separator()
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Save", callback=self._on_save)
