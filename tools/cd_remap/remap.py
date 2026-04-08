@@ -77,6 +77,63 @@ def apply_swaps(xml_bytes: bytes, swaps: dict[str, str]) -> bytes:
     return _KEY_ATTR_RE.sub(replace_key, xml_bytes)
 
 
+_INPUTGROUP_LAYER_RE = re.compile(rb'<InputGroup\b[^>]*\bLayerName="([^"]+)"')
+
+
+def apply_swaps_contextual(xml_bytes: bytes, swaps: list[dict]) -> bytes:
+    """Apply context-aware button swaps. Each swap has source, target, context."""
+    from .contexts import layer_matches_context
+
+    # Group swaps by context for efficient lookup
+    by_context: dict[str, dict[str, str]] = {}
+    for swap in swaps:
+        ctx = swap["context"]
+        by_context.setdefault(ctx, {})[swap["source"]] = swap["target"]
+
+    current_layer = None
+    result_lines = []
+
+    for line in xml_bytes.split(b"\n"):
+        # Track current InputGroup layer
+        layer_match = _INPUTGROUP_LAYER_RE.search(line)
+        if layer_match:
+            current_layer = layer_match.group(1).decode("utf-8")
+
+        # Find applicable swaps for current layer
+        applicable_swaps = {}
+        for ctx, swap_map in by_context.items():
+            if current_layer is None:
+                # Before any InputGroup — only "all" applies
+                if ctx == "all":
+                    applicable_swaps.update(swap_map)
+            else:
+                if layer_matches_context(current_layer, ctx):
+                    applicable_swaps.update(swap_map)
+
+        if applicable_swaps:
+            # Apply swaps to this line using the existing placeholder technique
+            def replace_key(match: re.Match) -> bytes:
+                prefix = match.group(1)
+                key_val = match.group(2).decode("utf-8")
+                suffix = match.group(3)
+
+                placeholders = {src: f"\x00SWAP_{i}\x00"
+                                for i, src in enumerate(applicable_swaps)}
+
+                for src, ph in placeholders.items():
+                    key_val = re.sub(rf'\b{re.escape(src)}\b', ph, key_val)
+                for src, ph in placeholders.items():
+                    key_val = key_val.replace(ph, applicable_swaps[src])
+
+                return prefix + key_val.encode("utf-8") + suffix
+
+            line = _KEY_ATTR_RE.sub(replace_key, line)
+
+        result_lines.append(line)
+
+    return b"\n".join(result_lines)
+
+
 def count_affected(xml_bytes: bytes, swaps: dict[str, str]) -> int:
     """Count how many GamePad entries would be changed by the swap config."""
     count = 0

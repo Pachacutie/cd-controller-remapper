@@ -119,3 +119,131 @@ class TestValidateSwapsContextual:
         ]
         errors = validate_swaps_contextual(swaps)
         assert any("fakeBtn" in e for e in errors)
+
+
+class TestApplySwapsContextual:
+    def test_all_context_swaps_everything(self):
+        from cd_remap.remap import apply_swaps_contextual
+        xml = (
+            b'<InputGroup Name="HUD" LayerName="UIHud_4">\n'
+            b'<Input Name="Dodge">\n'
+            b'\t<GamePad Key="buttonA" Method="downonce"/>\n'
+            b'</>\n'
+            b'</>\n'
+            b'<InputGroup Name="Menu" LayerName="UIMainMenu">\n'
+            b'<Input Name="Confirm">\n'
+            b'\t<GamePad Key="buttonA" Method="downonce"/>\n'
+            b'</>\n'
+            b'</>\n'
+        )
+        swaps = [
+            {"source": "buttonA", "target": "buttonB", "context": "all"},
+            {"source": "buttonB", "target": "buttonA", "context": "all"},
+        ]
+        result = apply_swaps_contextual(xml, swaps)
+        assert result.count(b'Key="buttonB"') == 2
+        assert result.count(b'Key="buttonA"') == 0
+
+    def test_gameplay_only_swaps_hud(self):
+        from cd_remap.remap import apply_swaps_contextual
+        xml = (
+            b'<InputGroup Name="HUD" LayerName="UIHud_4">\n'
+            b'<Input Name="Dodge">\n'
+            b'\t<GamePad Key="buttonA" Method="downonce"/>\n'
+            b'</>\n'
+            b'</>\n'
+            b'<InputGroup Name="Menu" LayerName="UIMainMenu">\n'
+            b'<Input Name="Confirm">\n'
+            b'\t<GamePad Key="buttonA" Method="downonce"/>\n'
+            b'</>\n'
+            b'</>\n'
+        )
+        swaps = [
+            {"source": "buttonA", "target": "buttonB", "context": "gameplay"},
+            {"source": "buttonB", "target": "buttonA", "context": "gameplay"},
+        ]
+        result = apply_swaps_contextual(xml, swaps)
+        lines = result.split(b'\n')
+        assert b'Key="buttonB"' in lines[2]
+        assert b'Key="buttonA"' in lines[7]
+
+    def test_mixed_contexts(self):
+        from cd_remap.remap import apply_swaps_contextual
+        xml = (
+            b'<InputGroup Name="HUD" LayerName="UIHud_4">\n'
+            b'<Input Name="Dodge">\n'
+            b'\t<GamePad Key="buttonA" Method="downonce"/>\n'
+            b'</>\n'
+            b'</>\n'
+            b'<InputGroup Name="Menu" LayerName="UIMainMenu">\n'
+            b'<Input Name="Confirm">\n'
+            b'\t<GamePad Key="buttonX" Method="downonce"/>\n'
+            b'</>\n'
+            b'</>\n'
+        )
+        swaps = [
+            {"source": "buttonA", "target": "buttonB", "context": "gameplay"},
+            {"source": "buttonB", "target": "buttonA", "context": "gameplay"},
+            {"source": "buttonX", "target": "buttonY", "context": "menus"},
+            {"source": "buttonY", "target": "buttonX", "context": "menus"},
+        ]
+        result = apply_swaps_contextual(xml, swaps)
+        lines = result.split(b'\n')
+        assert b'Key="buttonB"' in lines[2]
+        assert b'Key="buttonY"' in lines[7]
+
+    def test_preserves_non_matching_context(self):
+        from cd_remap.remap import apply_swaps_contextual
+        xml = (
+            b'<InputGroup Name="Menu" LayerName="UIMainMenu">\n'
+            b'<Input Name="Confirm">\n'
+            b'\t<GamePad Key="buttonA" Method="downonce"/>\n'
+            b'</>\n'
+            b'</>\n'
+        )
+        swaps = [
+            {"source": "buttonA", "target": "buttonB", "context": "gameplay"},
+            {"source": "buttonB", "target": "buttonA", "context": "gameplay"},
+        ]
+        result = apply_swaps_contextual(xml, swaps)
+        assert b'Key="buttonA"' in result
+
+    def test_no_inputgroup_layer_unaffected(self):
+        from cd_remap.remap import apply_swaps_contextual
+        xml = (
+            b'<GamePad Key="buttonA" Method="downonce"/>\n'
+            b'<InputGroup Name="HUD" LayerName="UIHud_4">\n'
+            b'\t<GamePad Key="buttonA" Method="downonce"/>\n'
+            b'</>\n'
+        )
+        swaps = [
+            {"source": "buttonA", "target": "buttonB", "context": "gameplay"},
+            {"source": "buttonB", "target": "buttonA", "context": "gameplay"},
+        ]
+        result = apply_swaps_contextual(xml, swaps)
+        lines = result.split(b'\n')
+        assert b'Key="buttonA"' in lines[0]
+        assert b'Key="buttonB"' in lines[2]
+
+    def test_all_context_matches_v1_behavior(self):
+        from cd_remap.remap import apply_swaps, apply_swaps_contextual
+        xml = (
+            b'<InputGroup Name="HUD" LayerName="UIHud_4">\n'
+            b'<Input Name="Attack">\n'
+            b'\t<GamePad Key="buttonA" Method="downonce"/>\n'
+            b'</>\n'
+            b'</>\n'
+            b'<InputGroup Name="Menu" LayerName="UIMainMenu">\n'
+            b'<Input Name="Confirm">\n'
+            b'\t<GamePad Key="buttonA" Method="downonce"/>\n'
+            b'</>\n'
+            b'</>\n'
+        )
+        v1_swaps = {"buttonA": "buttonB", "buttonB": "buttonA"}
+        v2_swaps = [
+            {"source": "buttonA", "target": "buttonB", "context": "all"},
+            {"source": "buttonB", "target": "buttonA", "context": "all"},
+        ]
+        v1_result = apply_swaps(xml, v1_swaps)
+        v2_result = apply_swaps_contextual(xml, v2_swaps)
+        assert v1_result == v2_result
