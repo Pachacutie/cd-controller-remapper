@@ -1,31 +1,50 @@
-# CD_LETSLEEP — Remove Sleep Cooldown for Crimson Desert
+# CRIMSON_DESERT — Crimson Desert Modding
 
-Removes the time-gated cooldown on sleeping and resting at beds and campsites in Crimson Desert.
+Mod creation workspace for Crimson Desert (BlackSpace Engine).
 
-## What It Does
+## Mods
 
-Vanilla Crimson Desert enforces a cooldown between rest interactions — you can't sleep again immediately after waking up. This mod patches the cooldown timer to zero, allowing you to rest whenever you want.
+### No Sleep Cooldown (`mod/no_sleep_cooldown.json`)
 
-## How It Works
+Removes the time-gated cooldown on sleeping and resting at beds. All 3h/6h/12h options always available.
 
-This is a JSON byte-patch mod for the BlackSpace Engine. It modifies specific bytes in the game's PAZ archives via an overlay system (`0036/`), so vanilla game files are never touched.
+**How it works:** Patches three `.pastage` sequencer files in PAZ folder 0014:
+- `cd_seq_minigame_sleep.pastage` — Sleep UI: enables greyed-out duration options
+- `gimmick_sleep_bed_left.pastage` — Left bed: bypasses cooldown state gate
+- `gimmick_sleep_bed_right.pastage` — Right bed: bypasses cooldown state gate
 
-## Requirements
+Two patch types:
+- `"False"` → `"True "` — Re-enables disabled UI options
+- `"NEGATIVE"` → `"START"`/`"COMPLETE"` — Changes state machine from rejection to acceptance
 
-- Crimson Desert (Steam)
-- A mod manager that supports JSON byte-patches:
-  - [CDUMM](https://github.com/faisalkindi/CrimsonDesert-UltimateModsManager) (recommended)
-  - [JSON Mod Manager](https://github.com/Lathiel/Crimson-Desert-JSON-Mod-Manager)
+## Tools
 
-## Installation
+### apply_mod.py
 
-1. Copy `mod/letmesleep.json` into your mod manager's `mods/` folder
-2. Enable the mod and click **Apply**
-3. Launch the game
+Applies or removes a JSON byte-patch mod by building a PAZ overlay (`0036/`) and updating the PAPGT hash registry. Backs up `meta/0.papgt` before first modification.
 
-## Uninstallation
+```bash
+# Apply
+python tools/apply_mod.py apply mod/no_sleep_cooldown.json [--dry-run]
 
-Disable the mod in your mod manager and click **Apply**. The overlay directory is cleaned up automatically.
+# Remove (restores vanilla PAPGT from backup, deletes 0036/)
+python tools/apply_mod.py remove
+```
+
+### verify_patch.py
+
+Verifies that a JSON byte-patch mod's offsets match the current game files.
+
+```bash
+python tools/verify_patch.py mod/no_sleep_cooldown.json
+```
+
+Both tools require CDUMM (`D:\Games\Modding\Tools\CDUMM\.venv`).
+
+## Toolchain
+
+- **CDUMM** (MIT, Python): `D:\Games\Modding\Tools\CDUMM\` — PAZ/PAMT parsing, overlay building
+- **Backups**: `D:\Games\Modding\Crimson Desert\BACKUP_PRISTINE\`
 
 ## License
 
