@@ -111,18 +111,11 @@ def diff_to_swaps(
         if default_btn != current_btn:
             btn_remap[default_btn] = current_btn
 
-    # Generate bidirectional swap pairs
-    swaps = []
-    seen = set()
-    for old_btn, new_btn in btn_remap.items():
-        pair = tuple(sorted([old_btn, new_btn]))
-        if pair in seen:
-            continue
-        seen.add(pair)
-        swaps.append({"source": old_btn, "target": new_btn, "context": swap_context})
-        swaps.append({"source": new_btn, "target": old_btn, "context": swap_context})
-
-    return swaps
+    # Emit one swap per remapped button — handles cycles correctly
+    return [
+        {"source": old_btn, "target": new_btn, "context": swap_context}
+        for old_btn, new_btn in btn_remap.items()
+    ]
 
 
 def get_button_action_labels(

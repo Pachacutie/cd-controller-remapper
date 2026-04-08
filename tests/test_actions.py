@@ -103,6 +103,20 @@ class TestDiffToSwaps:
         swaps = diff_to_swaps(defaults, current, "gameplay")
         assert len(swaps) == 4
 
+    def test_three_way_cycle(self):
+        from cd_remap.actions import diff_to_swaps
+        defaults = {"Sprint": "buttonA", "Dodge": "buttonB", "Jump": "buttonX"}
+        current = {"Sprint": "buttonB", "Dodge": "buttonX", "Jump": "buttonA"}
+        swaps = diff_to_swaps(defaults, current, "gameplay")
+        assert len(swaps) == 3
+        swap_map = {s["source"]: s["target"] for s in swaps}
+        assert swap_map["buttonA"] == "buttonB"
+        assert swap_map["buttonB"] == "buttonX"
+        assert swap_map["buttonX"] == "buttonA"
+        # No duplicate sources — each button maps to exactly one target
+        sources = [s["source"] for s in swaps]
+        assert len(sources) == len(set(sources))
+
     def test_context_passed_through(self):
         from cd_remap.actions import diff_to_swaps
         defaults = {"Sprint/Run": "buttonA", "Jump": "buttonX"}
