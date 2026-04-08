@@ -18,7 +18,7 @@ Instead of cryptic button swaps, you see actual game actions (Sprint, Dodge, Jum
 ## Quick Start
 
 1. Download `cd_remap.exe` from [Releases](https://github.com/Pachacutie/cd-controller-remapper/releases)
-2. Run it — the GUI opens automatically
+2. **Windows SmartScreen warning:** The exe is not code-signed, so Windows will block it. To unblock: right-click `cd_remap.exe` → Properties → check **Unblock** at the bottom → OK. Then run it normally.
 3. Pick a preset or click actions to remap them
 4. Click **Apply**
 5. Launch Crimson Desert
