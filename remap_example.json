@@ -1,0 +1,6 @@
+{
+  "swaps": {
+    "buttonA": "buttonB",
+    "buttonB": "buttonA"
+  }
+}

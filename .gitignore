@@ -20,3 +20,10 @@ extracted/
 
 # Superpowers
 .superpowers/
+
+# Build artifacts
+dist/
+build/pyinstaller_work/
+build/*.spec
+inputmap_common.xml
+extract_inputmap.py
