@@ -145,14 +145,18 @@ CRIMSON_DESERT/
 
 ## Vendored CDUMM Subset
 
-Extracted from CDUMM (MIT license). Only the four modules needed:
+Extracted from CDUMM (MIT license). Only the five modules needed:
 
 | Module | Purpose |
 |---|---|
 | `paz_parse.py` | PAMT index parsing, file entry lookup |
-| `paz_crypto.py` | ChaCha20 decryption, LZ4 decompression |
+| `paz_crypto.py` | ChaCha20 decryption/encryption, LZ4 compress/decompress |
 | `overlay_builder.py` | PAZ/PAMT overlay construction |
 | `papgt_manager.py` | PAPGT hash registry rebuild |
+| `hashlittle.py` | Hash function (dep of overlay_builder + papgt_manager) |
+
+Note: `paz_repack.fix_dds_header` stubbed out (not needed for XML mods).
+Third-party pip deps: `cryptography`, `lz4` (bundled in PyInstaller exe).
 
 Vendored copy is pinned to a specific CDUMM commit. `vendor/__init__.py` documents the source commit and date.
 
