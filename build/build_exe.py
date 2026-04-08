@@ -13,7 +13,7 @@ PyInstaller.__main__.run([
     str(ROOT / "tools" / "cd_remap_entry.py"),
     "--name", "cd_remap",
     "--onefile",
-    "--console",
+    "--windowed",
     "--distpath", str(ROOT / "dist"),
     "--workpath", str(ROOT / "build" / "pyinstaller_work"),
     "--specpath", str(ROOT / "build"),
