@@ -77,6 +77,63 @@ def apply_swaps(xml_bytes: bytes, swaps: dict[str, str]) -> bytes:
     return _KEY_ATTR_RE.sub(replace_key, xml_bytes)
 
 
+_INPUTGROUP_LAYER_RE = re.compile(rb'<InputGroup\b[^>]*\bLayerName="([^"]+)"')
+
+
+def apply_swaps_contextual(xml_bytes: bytes, swaps: list[dict]) -> bytes:
+    """Apply context-aware button swaps. Each swap has source, target, context."""
+    from .contexts import layer_matches_context
+
+    # Group swaps by context for efficient lookup
+    by_context: dict[str, dict[str, str]] = {}
+    for swap in swaps:
+        ctx = swap["context"]
+        by_context.setdefault(ctx, {})[swap["source"]] = swap["target"]
+
+    current_layer = None
+    result_lines = []
+
+    for line in xml_bytes.split(b"\n"):
+        # Track current InputGroup layer
+        layer_match = _INPUTGROUP_LAYER_RE.search(line)
+        if layer_match:
+            current_layer = layer_match.group(1).decode("utf-8")
+
+        # Find applicable swaps for current layer
+        applicable_swaps = {}
+        for ctx, swap_map in by_context.items():
+            if current_layer is None:
+                # Before any InputGroup — only "all" applies
+                if ctx == "all":
+                    applicable_swaps.update(swap_map)
+            else:
+                if layer_matches_context(current_layer, ctx):
+                    applicable_swaps.update(swap_map)
+
+        if applicable_swaps:
+            # Apply swaps to this line using the existing placeholder technique
+            def replace_key(match: re.Match) -> bytes:
+                prefix = match.group(1)
+                key_val = match.group(2).decode("utf-8")
+                suffix = match.group(3)
+
+                placeholders = {src: f"\x00SWAP_{i}\x00"
+                                for i, src in enumerate(applicable_swaps)}
+
+                for src, ph in placeholders.items():
+                    key_val = re.sub(rf'\b{re.escape(src)}\b', ph, key_val)
+                for src, ph in placeholders.items():
+                    key_val = key_val.replace(ph, applicable_swaps[src])
+
+                return prefix + key_val.encode("utf-8") + suffix
+
+            line = _KEY_ATTR_RE.sub(replace_key, line)
+
+        result_lines.append(line)
+
+    return b"\n".join(result_lines)
+
+
 def count_affected(xml_bytes: bytes, swaps: dict[str, str]) -> int:
     """Count how many GamePad entries would be changed by the swap config."""
     count = 0
@@ -161,6 +218,52 @@ def apply_remap(
     papgt_path.write_bytes(papgt_bytes)
 
     return {"ok": True, "affected": affected, "dry_run": False}
+
+
+def _apply_patched_xml(
+    patched_xml: bytes,
+    game_dir: Path = DEFAULT_GAME_DIR,
+) -> dict:
+    """Build overlay from pre-patched XML bytes. Used by GUI for context-aware apply."""
+    # Count affected lines BEFORE writing (extract_xml reads vanilla from 0012)
+    original_xml = extract_xml(game_dir)
+    affected = sum(1 for a, b in zip(original_xml.split(b"\n"), patched_xml.split(b"\n")) if a != b)
+
+    papgt_path = game_dir / "meta" / "0.papgt"
+    backup_papgt = BACKUP_DIR / "meta" / "0.papgt"
+    if not backup_papgt.exists():
+        backup_papgt.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(papgt_path, backup_papgt)
+
+    compressed = lz4_compress(patched_xml)
+    encrypted = encrypt(compressed, TARGET_FILE)
+
+    overlay_input = [(
+        encrypted,
+        {
+            "entry_path": TARGET_FILE,
+            "compression_type": 2,
+            "pamt_dir": PAZ_FOLDER,
+            "decomp_size": len(patched_xml),
+        },
+    )]
+
+    overlay_dir = game_dir / "0036"
+    existing_entries = _read_existing_overlay(overlay_dir, game_dir) if overlay_dir.exists() else []
+    existing_entries = [e for e in existing_entries if e[1].get("entry_path") != TARGET_FILE]
+    all_entries = existing_entries + overlay_input
+
+    paz_bytes, pamt_bytes = build_overlay(all_entries, game_dir=str(game_dir))
+
+    overlay_dir.mkdir(exist_ok=True)
+    (overlay_dir / "0.paz").write_bytes(paz_bytes)
+    (overlay_dir / "0.pamt").write_bytes(pamt_bytes)
+
+    papgt_mgr = PapgtManager(game_dir)
+    papgt_bytes = papgt_mgr.rebuild(modified_pamts={"0036": pamt_bytes})
+    papgt_path.write_bytes(papgt_bytes)
+
+    return {"ok": True, "affected": affected}
 
 
 def remove_remap(game_dir: Path = DEFAULT_GAME_DIR) -> dict:

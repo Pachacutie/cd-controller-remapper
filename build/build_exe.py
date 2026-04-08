@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).parent.parent
 
 PyInstaller.__main__.run([
-    str(ROOT / "tools" / "cd_remap" / "__main__.py"),
+    str(ROOT / "tools" / "cd_remap_entry.py"),
     "--name", "cd_remap",
     "--onefile",
     "--console",
@@ -18,4 +18,18 @@ PyInstaller.__main__.run([
     "--workpath", str(ROOT / "build" / "pyinstaller_work"),
     "--specpath", str(ROOT / "build"),
     "--clean",
+    "--paths", str(ROOT / "tools"),
+    "--hidden-import", "dearpygui",
+    "--collect-all", "dearpygui",
+    "--hidden-import", "XInput",
+    "--hidden-import", "cd_remap",
+    "--hidden-import", "cd_remap.gui",
+    "--hidden-import", "cd_remap.tui",
+    "--hidden-import", "cd_remap.actions",
+    "--hidden-import", "cd_remap.contexts",
+    "--hidden-import", "cd_remap.presets",
+    "--hidden-import", "cd_remap.gamepad",
+    "--hidden-import", "cd_remap.controller_draw",
+    "--hidden-import", "cd_remap.remap",
+    "--hidden-import", "cd_remap.vendor",
 ])
