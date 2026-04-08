@@ -56,7 +56,22 @@ def cmd_show(args):
     return 0
 
 
-def cmd_interactive(args):
+def cmd_gui(args):
+    try:
+        from .gui import run_gui
+        run_gui(args.game_dir)
+        return 0
+    except ImportError:
+        print("Dear PyGui not available. Install with: pip install dearpygui")
+        print("Falling back to TUI mode...")
+        return cmd_tui(args)
+    except Exception as e:
+        print(f"GUI failed to start: {e}")
+        print("Falling back to TUI mode...")
+        return cmd_tui(args)
+
+
+def cmd_tui(args):
     from .tui import run_tui
     return run_tui(args.game_dir)
 
@@ -64,16 +79,13 @@ def cmd_interactive(args):
 def main():
     parser = argparse.ArgumentParser(
         prog="cd_remap",
-        description=f"CD Controller Remapper v{VERSION} — Crimson Desert gamepad button swap tool",
+        description=f"CD Controller Remapper v{VERSION} -- Crimson Desert gamepad button swap tool",
     )
     parser.add_argument("--game-dir", type=Path, default=DEFAULT_GAME_DIR)
-    parser.set_defaults(func=lambda args: cmd_interactive(args))
+    parser.add_argument("--tui", action="store_true", help="Use text TUI instead of GUI")
+    parser.set_defaults(func=lambda args: cmd_tui(args) if args.tui else cmd_gui(args))
 
     sub = parser.add_subparsers(dest="command")
-
-    p_interactive = sub.add_parser("interactive", help="Launch interactive TUI")
-    p_interactive.add_argument("--game-dir", type=Path, default=DEFAULT_GAME_DIR)
-    p_interactive.set_defaults(func=cmd_interactive)
 
     p_apply = sub.add_parser("apply", help="Apply remap from JSON config")
     p_apply.add_argument("config", help="Path to remap JSON file")
