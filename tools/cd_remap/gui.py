@@ -261,8 +261,8 @@ class RemapGUI:
                 dpg.add_text(f"{src_disp} <-> {tgt_disp}  ({ctx})", color=color[:3])
                 dpg.add_button(
                     label="x",
-                    callback=lambda s, a, u=swap["source"]: self._remove_swap_pair(u),
-                    width=20, height=20,
+                    callback=lambda s, a, u: self._remove_swap_pair(u),
+                    user_data=swap["source"], width=20, height=20,
                 )
 
     def _check_conflicts(self) -> list[str]:
@@ -310,8 +310,8 @@ class RemapGUI:
         for name in BUILTIN_PRESETS:
             dpg.add_button(
                 label=name, width=-1,
-                callback=lambda s, a, u=name: self._load_preset(u),
-                parent="sidebar_group",
+                callback=lambda s, a, u: self._load_preset(u),
+                user_data=name, parent="sidebar_group",
             )
 
         dpg.add_spacer(height=10, parent="sidebar_group")
@@ -320,8 +320,8 @@ class RemapGUI:
         for slug in list_profiles():
             dpg.add_button(
                 label=slug, width=-1,
-                callback=lambda s, a, u=slug: self._load_profile_by_slug(u),
-                parent="sidebar_group",
+                callback=lambda s, a, u: self._load_profile_by_slug(u),
+                user_data=slug, parent="sidebar_group",
             )
 
     def _load_preset(self, name: str):
