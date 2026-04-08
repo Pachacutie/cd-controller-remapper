@@ -79,7 +79,7 @@ def cmd_tui(args):
 def main():
     parser = argparse.ArgumentParser(
         prog="cd_remap",
-        description=f"CD Controller Remapper v{VERSION} -- Crimson Desert gamepad button swap tool",
+        description=f"CD Controller Remapper v{VERSION} — Crimson Desert gamepad button swap tool",
     )
     parser.add_argument("--game-dir", type=Path, default=DEFAULT_GAME_DIR)
     parser.add_argument("--tui", action="store_true", help="Use text TUI instead of GUI")
@@ -100,6 +100,10 @@ def main():
     p_show = sub.add_parser("show", help="Show current vanilla gamepad bindings")
     p_show.add_argument("--game-dir", type=Path, default=DEFAULT_GAME_DIR)
     p_show.set_defaults(func=cmd_show)
+
+    p_interactive = sub.add_parser("interactive", help="Launch interactive TUI")
+    p_interactive.add_argument("--game-dir", type=Path, default=DEFAULT_GAME_DIR)
+    p_interactive.set_defaults(func=cmd_tui)
 
     args = parser.parse_args()
     sys.exit(args.func(args))

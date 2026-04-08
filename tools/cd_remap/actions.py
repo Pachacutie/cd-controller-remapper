@@ -134,10 +134,14 @@ def get_button_action_labels(
     label_map = {a.default_btn: a.short_label for a in actions}
 
     if custom_assignments:
-        label_map = {}
         name_to_label = {a.name: a.short_label for a in actions}
+        label_map = {}
         for action_name, btn in custom_assignments.items():
             if action_name in name_to_label:
                 label_map[btn] = name_to_label[action_name]
+        # Fill in defaults for actions not in custom_assignments
+        for action in actions:
+            if action.name not in custom_assignments and action.default_btn not in label_map:
+                label_map[action.default_btn] = action.short_label
 
     return label_map

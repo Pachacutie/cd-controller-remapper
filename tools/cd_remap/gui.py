@@ -148,6 +148,12 @@ class RemapGUI:
         self._refresh_action_list()
         self._refresh_controller()
 
+    def _on_key_press(self, sender, app_data):
+        if app_data == dpg.mvKey_Escape and self.selected_action:
+            self.selected_action = None
+            self._refresh_controller()
+            self._set_status("Cancelled.")
+
     def _on_mouse_move(self, sender, app_data):
         mouse_pos = dpg.get_drawing_mouse_pos()
         in_drawlist = 0 <= mouse_pos[0] <= 450 and 0 <= mouse_pos[1] <= 300
@@ -168,6 +174,12 @@ class RemapGUI:
             hover_color = COLOR_HOVER if base == COLOR_DEFAULT else tuple(min(255, c + 60) for c in base[:3]) + (255,)
             update_button_color(self.drawlist, btn, hover_color)
             self.hovered_button = btn
+            # Show full action name in status bar
+            current = self.assignments[self.active_tab]
+            for action_name, assigned_btn in current.items():
+                if assigned_btn == btn:
+                    self._set_status(f"{action_name} [{BUTTON_DISPLAY.get(btn, btn)}]")
+                    break
         else:
             self.hovered_button = None
 
@@ -289,8 +301,7 @@ class RemapGUI:
         save_data = {}
         for ctx in ALL_CONTEXTS:
             defaults = get_defaults(ctx)
-            changed = {a: b for a, b in self.assignments[ctx].items() if b != defaults.get(a)}
-            save_data[ctx] = changed
+            save_data[ctx] = {a: b for a, b in self.assignments[ctx].items() if b != defaults.get(a)}
         try:
             path = save_profile_v3(name.strip(), save_data)
             self.active_profile = path.stem
@@ -410,6 +421,7 @@ class RemapGUI:
                     with dpg.handler_registry():
                         dpg.add_mouse_click_handler(callback=self._on_controller_click)
                         dpg.add_mouse_move_handler(callback=self._on_mouse_move)
+                        dpg.add_key_press_handler(callback=self._on_key_press)
 
             # Bottom bar
             dpg.add_separator()

@@ -178,10 +178,7 @@ def draw_action_label(drawlist: int | str, btn_id: str, label: str):
     pos = BUTTON_POSITIONS[btn_id]
     dx, dy = _LABEL_OFFSETS.get(btn_id, (20, 0))
 
-    if pos["shape"] == "circle":
-        x, y = pos["x"] + dx, pos["y"] + dy
-    else:
-        x, y = pos["x"] + dx, pos["y"] + dy
+    x, y = pos["x"] + dx, pos["y"] + dy
 
     # Delete old label if exists, then redraw
     try:

@@ -126,6 +126,17 @@ class TestActionLabelsForButtons:
         assert labels["buttonA"] == "Jump"
         assert labels["buttonX"] == "Sprint"
 
+    def test_partial_assignments_preserve_default_labels(self):
+        from cd_remap.actions import get_button_action_labels
+        partial = {"Sprint/Run": "buttonX", "Jump": "buttonA"}
+        labels = get_button_action_labels("combat", partial)
+        # Changed buttons get new labels
+        assert labels["buttonA"] == "Jump"
+        assert labels["buttonX"] == "Sprint"
+        # Unchanged buttons keep default labels
+        assert labels["buttonB"] == "Dodge"
+        assert labels["buttonY"] == "Kick"
+
     def test_labels_are_short(self):
         from cd_remap.actions import get_button_action_labels
         labels = get_button_action_labels("combat", None)

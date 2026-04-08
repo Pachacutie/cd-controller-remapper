@@ -53,14 +53,16 @@ class GamepadPoller:
         new_presses = current - self._prev_buttons
         self._prev_buttons = current
 
-        for xinput_name in new_presses:
-            if xinput_name in XINPUT_TO_BUTTON:
-                return XINPUT_TO_BUTTON[xinput_name]
-
-        # Analog triggers with threshold
+        # Read trigger state before any early return so edge detection stays correct
         lt, rt = self._xi.get_trigger_values(state)
         lt_pressed = lt > TRIGGER_THRESHOLD
         rt_pressed = rt > TRIGGER_THRESHOLD
+
+        for xinput_name in new_presses:
+            if xinput_name in XINPUT_TO_BUTTON:
+                self._prev_lt = lt_pressed
+                self._prev_rt = rt_pressed
+                return XINPUT_TO_BUTTON[xinput_name]
 
         if lt_pressed and not self._prev_lt:
             self._prev_lt = lt_pressed
