@@ -79,10 +79,11 @@ def draw_controller_body(drawlist: int | str):
 
 
 def draw_button(drawlist: int | str, btn_id: str, color: tuple = COLOR_DEFAULT,
-                border: tuple = COLOR_BORDER) -> int | str:
+                border: tuple = COLOR_BORDER, label_override: str | None = None) -> int | str:
     """Draw a single button. Returns the drawn item tag for later color updates."""
     pos = BUTTON_POSITIONS[btn_id]
     tag = f"btn_{btn_id}"
+    label = label_override if label_override is not None else pos["label"]
 
     if pos["shape"] == "circle":
         dpg.draw_circle(
@@ -90,9 +91,12 @@ def draw_button(drawlist: int | str, btn_id: str, color: tuple = COLOR_DEFAULT,
             color=border, fill=color,
             tag=tag, parent=drawlist,
         )
+        # Center label text (approximate)
+        text_x = pos["x"] - len(label) * 3
+        text_y = pos["y"] - 6
         dpg.draw_text(
-            (pos["x"] - 5, pos["y"] - 6), pos["label"],
-            color=(255, 255, 255, 255), size=12,
+            (text_x, text_y), label,
+            color=(255, 255, 255, 255), size=11,
             parent=drawlist,
         )
     elif pos["shape"] == "ring":
@@ -109,19 +113,20 @@ def draw_button(drawlist: int | str, btn_id: str, color: tuple = COLOR_DEFAULT,
             rounding=4, tag=tag, parent=drawlist,
         )
         dpg.draw_text(
-            (x + 3, y + 2), pos["label"],
-            color=(255, 255, 255, 255), size=11,
+            (x + 3, y + 2), label,
+            color=(255, 255, 255, 255), size=10,
             parent=drawlist,
         )
 
     return tag
 
 
-def draw_all_buttons(drawlist: int | str) -> dict[str, str]:
+def draw_all_buttons(drawlist: int | str, labels: dict[str, str] | None = None) -> dict[str, str]:
     """Draw all buttons on the controller. Returns {btn_id: item_tag}."""
     tags = {}
     for btn_id in BUTTON_POSITIONS:
-        tags[btn_id] = draw_button(drawlist, btn_id)
+        label_override = labels.get(btn_id) if labels else None
+        tags[btn_id] = draw_button(drawlist, btn_id, label_override=label_override)
     return tags
 
 
