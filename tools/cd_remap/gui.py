@@ -72,8 +72,10 @@ class RemapGUI:
         return {current[a] for a in current if current[a] != defaults.get(a)}
 
     def _on_tab_change(self, sender, app_data):
+        # DPG may pass integer ID or string tag — resolve via alias
+        tag = dpg.get_item_alias(app_data) if isinstance(app_data, int) else app_data
         tab_map = {"tab_combat": "combat", "tab_menus": "menus", "tab_horse": "horse"}
-        self.active_tab = tab_map.get(app_data, "combat")
+        self.active_tab = tab_map.get(tag, "combat")
         self.selected_action = None
         self._refresh_action_list()
         self._refresh_controller()
