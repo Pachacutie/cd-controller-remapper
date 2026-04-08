@@ -30,6 +30,7 @@ from .controller_draw import (
     update_button_color,
     get_pair_color,
     COLOR_DEFAULT,
+    COLOR_HOVER,
     COLOR_SELECTED,
 )
 
@@ -51,6 +52,7 @@ class RemapGUI:
         self.pair_index = 0
         self.button_pair_map: dict[str, int] = {}
         self.drawlist = None
+        self.hovered_button: str | None = None
         self.binding_counts: dict[str, int] = {}
         self._load_binding_counts()
 
@@ -158,15 +160,50 @@ class RemapGUI:
 
                 self._add_swap_pair(src, btn)
 
-    def _refresh_controller_colors(self):
-        for btn_id in CLICKABLE_BUTTONS:
-            if btn_id in self.button_pair_map:
-                color = get_pair_color(self.button_pair_map[btn_id])
-            elif btn_id == self.selected_button:
-                color = COLOR_SELECTED
+    def _get_button_color(self, btn_id: str) -> tuple:
+        """Get the current color a button should be (swap pair, selected, or default)."""
+        if btn_id in self.button_pair_map:
+            return get_pair_color(self.button_pair_map[btn_id])
+        if btn_id == self.selected_button:
+            return COLOR_SELECTED
+        return COLOR_DEFAULT
+
+    def _on_mouse_move(self, sender, app_data):
+        if not dpg.is_item_hovered("controller_drawlist"):
+            if self.hovered_button:
+                update_button_color(self.drawlist, self.hovered_button,
+                                    self._get_button_color(self.hovered_button))
+                self.hovered_button = None
+            return
+
+        mouse_pos = dpg.get_drawing_mouse_pos()
+        btn = hit_test(mouse_pos[0], mouse_pos[1])
+
+        if btn == self.hovered_button:
+            return
+
+        # Unhover previous
+        if self.hovered_button:
+            update_button_color(self.drawlist, self.hovered_button,
+                                self._get_button_color(self.hovered_button))
+
+        # Hover new
+        if btn and btn in CLICKABLE_BUTTONS:
+            # Brighten: blend toward white for swap-colored buttons, use HOVER for default
+            base = self._get_button_color(btn)
+            if base == COLOR_DEFAULT:
+                hover_color = COLOR_HOVER
             else:
-                color = COLOR_DEFAULT
-            update_button_color(self.drawlist, btn_id, color)
+                hover_color = tuple(min(255, c + 60) for c in base[:3]) + (255,)
+            update_button_color(self.drawlist, btn, hover_color)
+            self.hovered_button = btn
+        else:
+            self.hovered_button = None
+
+    def _refresh_controller_colors(self):
+        self.hovered_button = None
+        for btn_id in CLICKABLE_BUTTONS:
+            update_button_color(self.drawlist, btn_id, self._get_button_color(btn_id))
 
     def _refresh_swap_list(self):
         if dpg.does_item_exist("swap_list_group"):
@@ -406,6 +443,7 @@ class RemapGUI:
 
                     with dpg.handler_registry():
                         dpg.add_mouse_click_handler(callback=self._on_controller_click)
+                        dpg.add_mouse_move_handler(callback=self._on_mouse_move)
 
                     dpg.add_separator()
                     dpg.add_text("Active Swaps:")
