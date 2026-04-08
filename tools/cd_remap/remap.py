@@ -220,6 +220,51 @@ def apply_remap(
     return {"ok": True, "affected": affected, "dry_run": False}
 
 
+def _apply_patched_xml(
+    patched_xml: bytes,
+    game_dir: Path = DEFAULT_GAME_DIR,
+) -> dict:
+    """Build overlay from pre-patched XML bytes. Used by GUI for context-aware apply."""
+    papgt_path = game_dir / "meta" / "0.papgt"
+    backup_papgt = BACKUP_DIR / "meta" / "0.papgt"
+    if not backup_papgt.exists():
+        backup_papgt.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(papgt_path, backup_papgt)
+
+    compressed = lz4_compress(patched_xml)
+    encrypted = encrypt(compressed, TARGET_FILE)
+
+    overlay_input = [(
+        encrypted,
+        {
+            "entry_path": TARGET_FILE,
+            "compression_type": 2,
+            "pamt_dir": PAZ_FOLDER,
+            "decomp_size": len(patched_xml),
+        },
+    )]
+
+    overlay_dir = game_dir / "0036"
+    existing_entries = _read_existing_overlay(overlay_dir, game_dir) if overlay_dir.exists() else []
+    existing_entries = [e for e in existing_entries if e[1].get("entry_path") != TARGET_FILE]
+    all_entries = existing_entries + overlay_input
+
+    paz_bytes, pamt_bytes = build_overlay(all_entries, game_dir=str(game_dir))
+
+    overlay_dir.mkdir(exist_ok=True)
+    (overlay_dir / "0.paz").write_bytes(paz_bytes)
+    (overlay_dir / "0.pamt").write_bytes(pamt_bytes)
+
+    papgt_mgr = PapgtManager(game_dir)
+    papgt_bytes = papgt_mgr.rebuild(modified_pamts={"0036": pamt_bytes})
+    papgt_path.write_bytes(papgt_bytes)
+
+    original_xml = extract_xml(game_dir)
+    affected = sum(1 for a, b in zip(original_xml.split(b"\n"), patched_xml.split(b"\n")) if a != b)
+
+    return {"ok": True, "affected": affected}
+
+
 def remove_remap(game_dir: Path = DEFAULT_GAME_DIR) -> dict:
     """Remove the remap entry from the overlay. Preserve other mod entries."""
     overlay_dir = game_dir / "0036"
