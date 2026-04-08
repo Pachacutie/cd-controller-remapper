@@ -46,6 +46,17 @@ Proprietary (Pearl Abyss). No official mod support — all community reverse-eng
 
 ---
 
+## Controller Remapper v2.0
+
+- Dear PyGui GUI with interactive controller diagram
+- 3 built-in presets (Soulslike, Southpaw, Trigger Swap)
+- Custom profile save/load/delete
+- Per-context remapping: All / Gameplay / Menus
+- CLI + TUI fallback preserved
+- PyInstaller exe for Nexus distribution
+
+---
+
 ## RE Notes
 
 **interactioninfo.pabgb** (0008, 177KB decompressed): Contains interaction definitions. `Bed_Lie` at offset 0x02362D, `Campfire_Eat` at 0x014FB7, `RideWait` at 0x00C163. Includes positioning/animation data, not cooldown timers.
