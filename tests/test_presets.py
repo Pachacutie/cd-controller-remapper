@@ -11,7 +11,6 @@ class TestBuiltinPresets:
         assert "Southpaw" in BUILTIN_PRESETS
         assert "Trigger Swap" in BUILTIN_PRESETS
 
-    @pytest.mark.skip(reason="contexts.py built in parallel")
     def test_presets_have_valid_swaps(self):
         from cd_remap.presets import BUILTIN_PRESETS
         from cd_remap.contexts import validate_swaps_contextual
