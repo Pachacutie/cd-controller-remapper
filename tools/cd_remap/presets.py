@@ -1,5 +1,6 @@
 """Built-in presets and profile management."""
 import json
+import os
 import re
 from pathlib import Path
 
@@ -25,7 +26,7 @@ BUILTIN_PRESETS: dict[str, list[dict]] = {
     ],
 }
 
-DEFAULT_PROFILES_DIR = Path(__file__).parent.parent.parent / "profiles"
+DEFAULT_PROFILES_DIR = Path(os.environ.get("APPDATA", ".")) / "cd_remap" / "profiles"
 
 
 def _slugify(name: str) -> str:

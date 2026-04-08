@@ -38,9 +38,17 @@ To undo: reopen the tool and click **Undo All**.
 Requires Python 3.12+, [Dear PyGui](https://github.com/hoffstadt/DearPyGui), and [XInput-Python](https://github.com/Zuzu-Typ/XInput-Python).
 
 ```bash
-pip install dearpygui XInput-Python
+git clone https://github.com/Pachacutie/cd-controller-remapper.git
 cd cd-controller-remapper
-python -m cd_remap --game-dir "path/to/Crimson Desert"
+pip install -r requirements.txt
+set PYTHONPATH=tools
+python -m cd_remap
+```
+
+The tool auto-detects your Steam install. If it can't find the game, pass `--game-dir`:
+
+```bash
+python -m cd_remap --game-dir "D:\Steam\steamapps\common\Crimson Desert"
 ```
 
 ### CLI
