@@ -24,8 +24,26 @@ ANALOG_BUTTONS = frozenset(["leftstick", "rightstick"])
 # Matches the Key="..." value inside GamePad elements
 _KEY_ATTR_RE = re.compile(rb'(<GamePad\b[^>]*\bKey=")([^"]+)(")')
 
-DEFAULT_GAME_DIR = Path("D:/Games/SteamLibrary/steamapps/common/Crimson Desert")
-BACKUP_DIR = Path("D:/Games/Modding/Crimson Desert/BACKUP_PRISTINE")
+def _detect_game_dir() -> Path:
+    """Auto-detect Crimson Desert install via common Steam library paths."""
+    candidates = [
+        Path("C:/Program Files (x86)/Steam/steamapps/common/Crimson Desert"),
+        Path("C:/Program Files/Steam/steamapps/common/Crimson Desert"),
+    ]
+    # Check additional Steam library folders from libraryfolders.vdf
+    vdf = Path("C:/Program Files (x86)/Steam/steamapps/libraryfolders.vdf")
+    if vdf.exists():
+        import re as _re
+        for match in _re.finditer(r'"path"\s+"([^"]+)"', vdf.read_text(errors="ignore")):
+            candidates.append(Path(match.group(1)) / "steamapps/common/Crimson Desert")
+    for p in candidates:
+        if (p / PAZ_FOLDER / "0.pamt").exists():
+            return p
+    return Path(".")  # Fallback — user must pass --game-dir
+
+
+DEFAULT_GAME_DIR = _detect_game_dir()
+BACKUP_DIR = DEFAULT_GAME_DIR.parent.parent.parent / "cd_remap_backup"
 
 
 def validate_swaps(swaps: dict[str, str]) -> list[str]:
@@ -149,6 +167,11 @@ def count_affected(xml_bytes: bytes, swaps: dict[str, str]) -> int:
 def extract_xml(game_dir: Path = DEFAULT_GAME_DIR) -> bytes:
     """Extract and decrypt ui/inputmap_common.xml from PAZ 0012."""
     paz_dir = game_dir / PAZ_FOLDER
+    if not paz_dir.exists():
+        raise FileNotFoundError(
+            f"Game directory not found: {game_dir}\n"
+            f"Make sure Crimson Desert is installed, or use --game-dir to specify the path."
+        )
     entries = parse_pamt(str(paz_dir / "0.pamt"), str(paz_dir))
     entry = next((e for e in entries if e.path == TARGET_FILE), None)
     if entry is None:

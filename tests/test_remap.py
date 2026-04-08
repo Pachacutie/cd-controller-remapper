@@ -123,8 +123,8 @@ import os
 # --- Integration: extract + swap + verify ---
 
 @pytest.mark.skipif(
-    not os.path.exists("D:/Games/SteamLibrary/steamapps/common/Crimson Desert/0012/0.pamt"),
-    reason="Game not installed",
+    not os.path.exists(os.path.join(os.environ.get("CD_GAME_DIR", "."), "0012", "0.pamt")),
+    reason="Game not installed (set CD_GAME_DIR env var to enable)",
 )
 class TestIntegration:
     def test_extract_and_swap_roundtrip(self):
