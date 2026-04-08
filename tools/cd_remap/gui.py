@@ -6,9 +6,8 @@ from . import VERSION
 from .remap import (
     VALID_BUTTONS,
     ANALOG_BUTTONS,
-    apply_remap,
+    _apply_patched_xml,
     apply_swaps_contextual,
-    count_affected,
     extract_xml,
     remove_remap,
     show_bindings,
@@ -73,8 +72,9 @@ class RemapGUI:
     def _swapped_buttons(self) -> set[str]:
         return {s["source"] for s in self.swaps}
 
-    def _add_swap_pair(self, src: str, tgt: str):
-        ctx = self._get_context()
+    def _add_swap_pair(self, src: str, tgt: str, ctx: str | None = None):
+        if ctx is None:
+            ctx = self._get_context()
         self.swaps.append({"source": src, "target": tgt, "context": ctx})
         self.swaps.append({"source": tgt, "target": src, "context": ctx})
 
@@ -116,6 +116,9 @@ class RemapGUI:
         self._refresh_swap_list()
 
     def _on_controller_click(self, sender, app_data):
+        # Only handle clicks when mouse is within the drawlist bounds
+        if not dpg.is_item_hovered("controller_drawlist"):
+            return
         mouse_pos = dpg.get_drawing_mouse_pos()
         btn = hit_test(mouse_pos[0], mouse_pos[1])
         if btn is None:
@@ -223,7 +226,7 @@ class RemapGUI:
             if pair in seen:
                 continue
             seen.add(pair)
-            self._add_swap_pair(swap["source"], swap["target"])
+            self._add_swap_pair(swap["source"], swap["target"], swap["context"])
         self._set_status(f"Loaded preset: {name}")
 
     def _load_profile_by_slug(self, slug: str):
@@ -237,7 +240,7 @@ class RemapGUI:
                 if pair in seen:
                     continue
                 seen.add(pair)
-                self._add_swap_pair(swap["source"], swap["target"])
+                self._add_swap_pair(swap["source"], swap["target"], swap["context"])
             self._set_status(f"Loaded profile: {data.get('name', slug)}")
         except Exception as e:
             self._set_status(f"Error loading profile: {e}")
@@ -292,14 +295,10 @@ class RemapGUI:
             self._set_status(f"Validation error: {errors[0]}")
             return
         try:
-            result = apply_remap(
-                {s["source"]: s["target"] for s in self.swaps if s["context"] == "all"},
-                self.game_dir, dry_run=True,
-            )
-            if result["ok"]:
-                self._set_status(f"Dry run: {result['affected']} bindings would change.")
-            else:
-                self._set_status(f"Error: {result['errors'][0]}")
+            xml = extract_xml(self.game_dir)
+            patched = apply_swaps_contextual(xml, self.swaps)
+            affected = sum(1 for a, b in zip(xml.split(b"\n"), patched.split(b"\n")) if a != b)
+            self._set_status(f"Dry run: {affected} bindings would change.")
         except Exception as e:
             self._set_status(f"Error: {e}")
 
@@ -315,7 +314,6 @@ class RemapGUI:
         try:
             xml = extract_xml(self.game_dir)
             patched = apply_swaps_contextual(xml, self.swaps)
-            from .remap import _apply_patched_xml
             result = _apply_patched_xml(patched, self.game_dir)
             if result["ok"]:
                 self._set_status(f"Applied! {result['affected']} bindings remapped.")

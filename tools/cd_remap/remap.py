@@ -225,6 +225,10 @@ def _apply_patched_xml(
     game_dir: Path = DEFAULT_GAME_DIR,
 ) -> dict:
     """Build overlay from pre-patched XML bytes. Used by GUI for context-aware apply."""
+    # Count affected lines BEFORE writing (extract_xml reads vanilla from 0012)
+    original_xml = extract_xml(game_dir)
+    affected = sum(1 for a, b in zip(original_xml.split(b"\n"), patched_xml.split(b"\n")) if a != b)
+
     papgt_path = game_dir / "meta" / "0.papgt"
     backup_papgt = BACKUP_DIR / "meta" / "0.papgt"
     if not backup_papgt.exists():
@@ -258,9 +262,6 @@ def _apply_patched_xml(
     papgt_mgr = PapgtManager(game_dir)
     papgt_bytes = papgt_mgr.rebuild(modified_pamts={"0036": pamt_bytes})
     papgt_path.write_bytes(papgt_bytes)
-
-    original_xml = extract_xml(game_dir)
-    affected = sum(1 for a, b in zip(original_xml.split(b"\n"), patched_xml.split(b"\n")) if a != b)
 
     return {"ok": True, "affected": affected}
 
