@@ -18,4 +18,6 @@ PyInstaller.__main__.run([
     "--workpath", str(ROOT / "build" / "pyinstaller_work"),
     "--specpath", str(ROOT / "build"),
     "--clean",
+    "--hidden-import", "dearpygui",
+    "--collect-all", "dearpygui",
 ])
