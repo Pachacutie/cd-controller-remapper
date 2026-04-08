@@ -153,3 +153,45 @@ def update_button_color(drawlist: int | str, btn_id: str, color: tuple):
 def get_pair_color(pair_index: int) -> tuple:
     """Get accent color for swap pair N (wraps around if >9 pairs)."""
     return PAIR_COLORS[pair_index % len(PAIR_COLORS)]
+
+
+# Label offsets relative to button position (dx, dy from button center/top-left)
+_LABEL_OFFSETS = {
+    "buttonA": (20, 5), "buttonB": (20, 5), "buttonX": (-40, 5), "buttonY": (20, -5),
+    "buttonLB": (0, -14), "buttonRB": (0, -14),
+    "buttonLT": (0, -14), "buttonRT": (0, -14),
+    "buttonLS": (0, 22), "buttonRS": (0, 30),
+    "padU": (-40, 0), "padD": (-40, 0), "padL": (-40, 0), "padR": (26, 0),
+    "select": (0, -16), "start": (0, -16),
+}
+
+
+def draw_action_label(drawlist: int | str, btn_id: str, label: str):
+    """Draw or update an action label near a button."""
+    if btn_id not in BUTTON_POSITIONS or not label:
+        return
+    tag = f"lbl_{btn_id}"
+    pos = BUTTON_POSITIONS[btn_id]
+    dx, dy = _LABEL_OFFSETS.get(btn_id, (20, 0))
+
+    if pos["shape"] == "circle":
+        x, y = pos["x"] + dx, pos["y"] + dy
+    else:
+        x, y = pos["x"] + dx, pos["y"] + dy
+
+    # Delete old label if exists, then redraw
+    try:
+        dpg.delete_item(tag)
+    except Exception:
+        pass
+
+    dpg.draw_text(
+        (x, y), label, color=COLOR_LABEL, size=10,
+        tag=tag, parent=drawlist,
+    )
+
+
+def draw_all_action_labels(drawlist: int | str, labels: dict[str, str]):
+    """Draw action labels for all buttons that have one."""
+    for btn_id, label in labels.items():
+        draw_action_label(drawlist, btn_id, label)

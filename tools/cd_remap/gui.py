@@ -27,6 +27,8 @@ from .controller_draw import (
     CLICKABLE_BUTTONS,
     draw_controller_body,
     draw_all_buttons,
+    draw_all_action_labels,
+    draw_action_label,
     hit_test,
     update_button_color,
     get_pair_color,
@@ -43,6 +45,38 @@ BUTTON_DISPLAY = {
     "select": "Select", "start": "Start",
 }
 
+# Keywords to skip when picking a friendly action label (too generic or debug)
+_SKIP_PREFIXES = ("Debug", "GameDebug", "Modal", "Alert", "Hud", "MainMenu", "Ui", "UI")
+
+
+def _pick_friendly_label(actions: list[str]) -> str:
+    """Pick the most recognizable action name from a list. Returns a short friendly string."""
+    import re
+    from collections import Counter
+
+    counts = Counter(actions)
+
+    # Prefer "Interaction" actions first (these are the primary in-game labels)
+    for action, _ in counts.most_common():
+        if action.startswith("Interaction"):
+            return action.replace("Interaction", "")  # "InteractionA" -> "A" (not useful)
+
+    # Otherwise find the most common non-generic action and make it readable
+    for action, _ in counts.most_common():
+        if any(action.startswith(p) for p in _SKIP_PREFIXES):
+            continue
+        if "DownOnce" in action or "Release" in action or "Press2" in action:
+            continue
+        # CamelCase to short label: "ConfirmPress" -> "Confirm", "DiscardItem2" -> "Discard"
+        words = re.findall(r'[A-Z][a-z]+', action)
+        if words:
+            label = words[0]  # Just first word
+            if len(words) > 1 and words[1] not in ("Press", "Release", "Down", "Input"):
+                label += " " + words[1]
+            return label
+
+    return ""
+
 
 class RemapGUI:
     def __init__(self, game_dir: Path):
@@ -57,19 +91,26 @@ class RemapGUI:
         self.gamepad = GamepadPoller()
         self.binding_counts: dict[str, int] = {}
         self.combo_buttons: dict[str, list[str]] = {}
+        self.button_labels: dict[str, str] = {}
         self._load_binding_counts()
 
     def _load_binding_counts(self):
         try:
             bindings = show_bindings(self.game_dir)
+            btn_actions: dict[str, list[str]] = {}
             for b in bindings:
                 tokens = b["key"].split()
                 for btn in VALID_BUTTONS:
                     if btn in tokens:
                         self.binding_counts[btn] = self.binding_counts.get(btn, 0) + 1
+                        btn_actions.setdefault(btn, []).append(b["action"])
                 if len(tokens) > 1:
                     for btn in tokens:
                         self.combo_buttons.setdefault(btn, []).append(b["key"])
+
+            # Pick a friendly primary action label per button
+            for btn, actions in btn_actions.items():
+                self.button_labels[btn] = _pick_friendly_label(actions)
         except (FileNotFoundError, OSError):
             pass
 
@@ -239,6 +280,28 @@ class RemapGUI:
         self.hovered_button = None
         for btn_id in CLICKABLE_BUTTONS:
             update_button_color(self.drawlist, btn_id, self._get_button_color(btn_id))
+        self._refresh_action_labels()
+
+    def _get_effective_labels(self) -> dict[str, str]:
+        """Get action labels accounting for current swaps."""
+        labels = dict(self.button_labels)
+        # For each swap pair, exchange labels
+        seen = set()
+        for swap in self.swaps:
+            pair = tuple(sorted([swap["source"], swap["target"]]))
+            if pair in seen:
+                continue
+            seen.add(pair)
+            src, tgt = swap["source"], swap["target"]
+            labels[src], labels[tgt] = self.button_labels.get(tgt, ""), self.button_labels.get(src, "")
+        return labels
+
+    def _refresh_action_labels(self):
+        """Redraw action labels on the controller to reflect current swaps."""
+        if not self.drawlist:
+            return
+        labels = self._get_effective_labels()
+        draw_all_action_labels(self.drawlist, labels)
 
     def _refresh_swap_list(self):
         if dpg.does_item_exist("swap_list_group"):
@@ -511,6 +574,7 @@ class RemapGUI:
                     self.drawlist = dpg.add_drawlist(width=450, height=300, tag="controller_drawlist")
                     draw_controller_body(self.drawlist)
                     draw_all_buttons(self.drawlist)
+                    draw_all_action_labels(self.drawlist, self.button_labels)
 
                     with dpg.handler_registry():
                         dpg.add_mouse_click_handler(callback=self._on_controller_click)
