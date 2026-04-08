@@ -54,16 +54,21 @@ class RemapGUI:
         self.drawlist = None
         self.hovered_button: str | None = None
         self.binding_counts: dict[str, int] = {}
+        self.combo_buttons: dict[str, list[str]] = {}
         self._load_binding_counts()
 
     def _load_binding_counts(self):
         try:
             bindings = show_bindings(self.game_dir)
             for b in bindings:
+                tokens = b["key"].split()
                 for btn in VALID_BUTTONS:
-                    if btn in b["key"].split():
+                    if btn in tokens:
                         self.binding_counts[btn] = self.binding_counts.get(btn, 0) + 1
-        except Exception:
+                if len(tokens) > 1:
+                    for btn in tokens:
+                        self.combo_buttons.setdefault(btn, []).append(b["key"])
+        except (FileNotFoundError, OSError):
             pass
 
     def _get_context(self) -> str:
@@ -87,6 +92,7 @@ class RemapGUI:
 
         self._refresh_controller_colors()
         self._refresh_swap_list()
+        self._refresh_warnings()
         self._set_status(f"Added: {BUTTON_DISPLAY[src]} <-> {BUTTON_DISPLAY[tgt]} ({ctx})")
 
     def _remove_swap_pair(self, btn: str):
@@ -107,6 +113,7 @@ class RemapGUI:
 
         self._refresh_controller_colors()
         self._refresh_swap_list()
+        self._refresh_warnings()
         self._set_status(f"Removed: {BUTTON_DISPLAY[btn]} <-> {BUTTON_DISPLAY[partner]}")
 
     def _clear_all_swaps(self):
@@ -116,12 +123,13 @@ class RemapGUI:
         self.selected_button = None
         self._refresh_controller_colors()
         self._refresh_swap_list()
+        self._refresh_warnings()
 
     def _on_controller_click(self, sender, app_data):
-        # Only handle clicks when mouse is within the drawlist bounds
-        if not dpg.is_item_hovered("controller_drawlist"):
-            return
         mouse_pos = dpg.get_drawing_mouse_pos()
+        # Only handle clicks within the drawlist area (450x300)
+        if not (0 <= mouse_pos[0] <= 450 and 0 <= mouse_pos[1] <= 300):
+            return
         btn = hit_test(mouse_pos[0], mouse_pos[1])
         if btn is None:
             if self.selected_button:
@@ -169,14 +177,15 @@ class RemapGUI:
         return COLOR_DEFAULT
 
     def _on_mouse_move(self, sender, app_data):
-        if not dpg.is_item_hovered("controller_drawlist"):
+        mouse_pos = dpg.get_drawing_mouse_pos()
+        in_drawlist = 0 <= mouse_pos[0] <= 450 and 0 <= mouse_pos[1] <= 300
+        if not in_drawlist:
             if self.hovered_button:
                 update_button_color(self.drawlist, self.hovered_button,
                                     self._get_button_color(self.hovered_button))
                 self.hovered_button = None
             return
 
-        mouse_pos = dpg.get_drawing_mouse_pos()
         btn = hit_test(mouse_pos[0], mouse_pos[1])
 
         if btn == self.hovered_button:
@@ -229,6 +238,42 @@ class RemapGUI:
                     callback=lambda s, a, u=swap["source"]: self._remove_swap_pair(u),
                     width=20, height=20,
                 )
+
+    def _check_conflicts(self) -> list[str]:
+        """Check current swaps for conflicts and warnings. Returns warning strings."""
+        warnings = []
+
+        # Validation errors from the context system
+        errors = validate_swaps_contextual(self.swaps)
+        for e in errors:
+            warnings.append(f"[Error] {e}")
+
+        # Combo key impact warnings
+        swapped_btns = {s["source"] for s in self.swaps}
+        for btn in swapped_btns:
+            combos = self.combo_buttons.get(btn, [])
+            if combos:
+                n = len(set(combos))
+                disp = BUTTON_DISPLAY.get(btn, btn)
+                warnings.append(
+                    f"[Info] {disp} is used in {n} combo binding{'s' if n != 1 else ''} "
+                    f"(e.g., {combos[0]}) — combos will also be remapped"
+                )
+
+        return warnings
+
+    def _refresh_warnings(self):
+        """Update the warnings display area."""
+        if not dpg.does_item_exist("warnings_group"):
+            return
+        dpg.delete_item("warnings_group", children_only=True)
+        warnings = self._check_conflicts()
+        for w in warnings:
+            if w.startswith("[Error]"):
+                color = (255, 80, 80)
+            else:
+                color = (255, 200, 80)
+            dpg.add_text(w, color=color, parent="warnings_group", wrap=500)
 
     def _refresh_sidebar(self):
         if dpg.does_item_exist("sidebar_group"):
@@ -457,6 +502,10 @@ class RemapGUI:
                         items=["All", "Gameplay", "Menus"],
                         tag="context_radio", default_value="All",
                     )
+
+            # Warnings area
+            with dpg.group(tag="warnings_group"):
+                pass
 
             # Bottom action bar
             dpg.add_separator()
