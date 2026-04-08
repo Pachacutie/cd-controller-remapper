@@ -20,4 +20,5 @@ PyInstaller.__main__.run([
     "--clean",
     "--hidden-import", "dearpygui",
     "--collect-all", "dearpygui",
+    "--hidden-import", "XInput",
 ])

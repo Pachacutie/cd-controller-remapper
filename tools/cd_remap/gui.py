@@ -3,6 +3,7 @@ import dearpygui.dearpygui as dpg
 from pathlib import Path
 
 from . import VERSION
+from .gamepad import GamepadPoller
 from .remap import (
     VALID_BUTTONS,
     ANALOG_BUTTONS,
@@ -53,6 +54,7 @@ class RemapGUI:
         self.button_pair_map: dict[str, int] = {}
         self.drawlist = None
         self.hovered_button: str | None = None
+        self.gamepad = GamepadPoller()
         self.binding_counts: dict[str, int] = {}
         self.combo_buttons: dict[str, list[str]] = {}
         self._load_binding_counts()
@@ -167,6 +169,30 @@ class RemapGUI:
                     )
 
                 self._add_swap_pair(src, btn)
+
+    def _on_gamepad_button(self, btn: str):
+        """Handle a physical gamepad button press — same flow as controller click."""
+        swapped = self._swapped_buttons()
+
+        if btn in swapped:
+            self._remove_swap_pair(btn)
+            self.selected_button = None
+            return
+
+        if self.selected_button is None:
+            self.selected_button = btn
+            update_button_color(self.drawlist, btn, COLOR_SELECTED)
+            self._set_status(f"Swap {BUTTON_DISPLAY.get(btn, btn)} with...")
+        elif btn == self.selected_button:
+            self.selected_button = None
+            self._refresh_controller_colors()
+            self._set_status("Cancelled.")
+        elif btn in swapped:
+            self._set_status(f"{BUTTON_DISPLAY.get(btn, btn)} is already swapped. Remove it first.")
+        else:
+            src = self.selected_button
+            self.selected_button = None
+            self._add_swap_pair(src, btn)
 
     def _get_button_color(self, btn_id: str) -> tuple:
         """Get the current color a button should be (swap pair, selected, or default)."""
@@ -495,13 +521,19 @@ class RemapGUI:
                     with dpg.group(tag="swap_list_group"):
                         pass
 
-                # Right — context radio
-                with dpg.child_window(width=100, height=120):
+                # Right — context radio + controller status
+                with dpg.child_window(width=100, height=160):
                     dpg.add_text("Context", color=(200, 200, 200))
                     dpg.add_radio_button(
                         items=["All", "Gameplay", "Menus"],
                         tag="context_radio", default_value="All",
                     )
+                    dpg.add_spacer(height=10)
+                    dpg.add_separator()
+                    dpg.add_text("Controller:", color=(200, 200, 200))
+                    status = "Connected" if self.gamepad.connected else "Not detected"
+                    color = (100, 255, 100) if self.gamepad.connected else (150, 150, 150)
+                    dpg.add_text(status, tag="gamepad_status", color=color)
 
             # Warnings area
             with dpg.group(tag="warnings_group"):
@@ -530,7 +562,26 @@ class RemapGUI:
         dpg.setup_dearpygui()
         dpg.show_viewport()
         dpg.set_primary_window("main_window", True)
-        dpg.start_dearpygui()
+
+        # Manual frame loop for gamepad polling
+        prev_connected = self.gamepad.connected
+        while dpg.is_dearpygui_running():
+            btn = self.gamepad.poll()
+            if btn:
+                self._on_gamepad_button(btn)
+
+            # Update controller status display on connection change
+            if self.gamepad.connected != prev_connected:
+                prev_connected = self.gamepad.connected
+                if self.gamepad.connected:
+                    dpg.set_value("gamepad_status", "Connected")
+                    dpg.configure_item("gamepad_status", color=(100, 255, 100))
+                else:
+                    dpg.set_value("gamepad_status", "Not detected")
+                    dpg.configure_item("gamepad_status", color=(150, 150, 150))
+
+            dpg.render_dearpygui_frame()
+
         dpg.destroy_context()
 
 
