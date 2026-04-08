@@ -45,37 +45,27 @@ BUTTON_DISPLAY = {
     "select": "Select", "start": "Start",
 }
 
-# Keywords to skip when picking a friendly action label (too generic or debug)
-_SKIP_PREFIXES = ("Debug", "GameDebug", "Modal", "Alert", "Hud", "MainMenu", "Ui", "UI")
+# Curated primary action labels per button (from game data analysis)
+_FRIENDLY_LABELS = {
+    "buttonA": "Confirm",
+    "buttonB": "Cancel",
+    "buttonX": "Action",
+    "buttonY": "Interact",
+    "buttonLB": "Tab L",
+    "buttonRB": "Tab R",
+    "buttonLT": "Aim",
+    "buttonRT": "Attack",
+    "buttonLS": "L-Click",
+    "buttonRS": "R-Click",
+    "select": "View",
+    "start": "Menu",
+}
+# D-pad, analog sticks: no labels (navigation/movement, too generic)
 
 
-def _pick_friendly_label(actions: list[str]) -> str:
-    """Pick the most recognizable action name from a list. Returns a short friendly string."""
-    import re
-    from collections import Counter
-
-    counts = Counter(actions)
-
-    # Prefer "Interaction" actions first (these are the primary in-game labels)
-    for action, _ in counts.most_common():
-        if action.startswith("Interaction"):
-            return action.replace("Interaction", "")  # "InteractionA" -> "A" (not useful)
-
-    # Otherwise find the most common non-generic action and make it readable
-    for action, _ in counts.most_common():
-        if any(action.startswith(p) for p in _SKIP_PREFIXES):
-            continue
-        if "DownOnce" in action or "Release" in action or "Press2" in action:
-            continue
-        # CamelCase to short label: "ConfirmPress" -> "Confirm", "DiscardItem2" -> "Discard"
-        words = re.findall(r'[A-Z][a-z]+', action)
-        if words:
-            label = words[0]  # Just first word
-            if len(words) > 1 and words[1] not in ("Press", "Release", "Down", "Input"):
-                label += " " + words[1]
-            return label
-
-    return ""
+def _pick_friendly_label(btn_id: str) -> str:
+    """Get a short friendly label for a button."""
+    return _FRIENDLY_LABELS.get(btn_id, "")
 
 
 class RemapGUI:
@@ -97,22 +87,22 @@ class RemapGUI:
     def _load_binding_counts(self):
         try:
             bindings = show_bindings(self.game_dir)
-            btn_actions: dict[str, list[str]] = {}
             for b in bindings:
                 tokens = b["key"].split()
                 for btn in VALID_BUTTONS:
                     if btn in tokens:
                         self.binding_counts[btn] = self.binding_counts.get(btn, 0) + 1
-                        btn_actions.setdefault(btn, []).append(b["action"])
                 if len(tokens) > 1:
                     for btn in tokens:
                         self.combo_buttons.setdefault(btn, []).append(b["key"])
-
-            # Pick a friendly primary action label per button
-            for btn, actions in btn_actions.items():
-                self.button_labels[btn] = _pick_friendly_label(actions)
         except (FileNotFoundError, OSError):
             pass
+
+        # Curated labels (not derived from game data — too noisy)
+        for btn in VALID_BUTTONS:
+            label = _pick_friendly_label(btn)
+            if label:
+                self.button_labels[btn] = label
 
     def _get_context(self) -> str:
         val = dpg.get_value("context_radio")

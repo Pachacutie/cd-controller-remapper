@@ -155,14 +155,13 @@ def get_pair_color(pair_index: int) -> tuple:
     return PAIR_COLORS[pair_index % len(PAIR_COLORS)]
 
 
-# Label offsets relative to button position (dx, dy from button center/top-left)
+# Label offsets relative to button center (dx, dy)
 _LABEL_OFFSETS = {
-    "buttonA": (20, 5), "buttonB": (20, 5), "buttonX": (-40, 5), "buttonY": (20, -5),
-    "buttonLB": (0, -14), "buttonRB": (0, -14),
-    "buttonLT": (0, -14), "buttonRT": (0, -14),
-    "buttonLS": (0, 22), "buttonRS": (0, 30),
-    "padU": (-40, 0), "padD": (-40, 0), "padL": (-40, 0), "padR": (26, 0),
-    "select": (0, -16), "start": (0, -16),
+    "buttonA": (18, 4), "buttonB": (18, 4), "buttonX": (-46, 4), "buttonY": (18, -2),
+    "buttonLB": (0, 26), "buttonRB": (0, 26),
+    "buttonLT": (0, 26), "buttonRT": (0, 26),
+    "buttonLS": (-14, 26), "buttonRS": (-14, 32),
+    "select": (-4, 20), "start": (-4, 20),
 }
 
 
