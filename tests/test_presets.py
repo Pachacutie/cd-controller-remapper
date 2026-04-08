@@ -94,3 +94,38 @@ class TestV1Migration:
         from cd_remap.presets import load_profile
         with pytest.raises(json.JSONDecodeError):
             load_profile("bad", profiles_dir=tmp_path)
+
+
+class TestV3Format:
+    def test_save_v3_roundtrip(self, tmp_path):
+        from cd_remap.presets import save_profile_v3, load_profile_v3
+        assignments = {
+            "combat": {"Sprint/Run": "buttonB", "Dodge/Roll": "buttonA"},
+            "menus": {},
+            "horse": {},
+        }
+        save_profile_v3("Test V3", assignments, profiles_dir=tmp_path)
+        loaded = load_profile_v3("test-v3", profiles_dir=tmp_path)
+        assert loaded["name"] == "Test V3"
+        assert loaded["format_version"] == "3.0"
+        assert loaded["combat"] == {"Sprint/Run": "buttonB", "Dodge/Roll": "buttonA"}
+
+    def test_builtin_presets_v3(self):
+        from cd_remap.presets import BUILTIN_PRESETS_V3
+        assert "Soulslike" in BUILTIN_PRESETS_V3
+        soulslike = BUILTIN_PRESETS_V3["Soulslike"]
+        assert "combat" in soulslike
+        assert soulslike["combat"]["Sprint/Run"] == "buttonB"
+        assert soulslike["combat"]["Dodge/Roll"] == "buttonA"
+
+    def test_v3_only_stores_changes(self, tmp_path):
+        from cd_remap.presets import save_profile_v3
+        assignments = {
+            "combat": {"Sprint/Run": "buttonB", "Dodge/Roll": "buttonA"},
+            "menus": {},
+            "horse": {},
+        }
+        save_profile_v3("Minimal", assignments, profiles_dir=tmp_path)
+        data = json.loads((tmp_path / "minimal.json").read_text())
+        assert data["menus"] == {}
+        assert data["horse"] == {}

@@ -92,3 +92,91 @@ def delete_profile(
     if not path.exists():
         raise FileNotFoundError(f"Profile not found: {slug}")
     path.unlink()
+
+
+BUILTIN_PRESETS_V3: dict[str, dict[str, dict[str, str]]] = {
+    "Soulslike": {
+        "combat": {
+            "Sprint/Run": "buttonB",
+            "Dodge/Roll": "buttonA",
+            "Jump": "buttonY",
+            "Kick/Unarmed": "buttonX",
+        },
+        "menus": {},
+        "horse": {},
+    },
+    "Southpaw": {
+        "combat": {
+            "Crouch/Slide": "buttonRS",
+            "Force Palm": "buttonLS",
+            "Block/Parry": "buttonRB",
+            "Basic Attack": "buttonLB",
+        },
+        "menus": {},
+        "horse": {},
+    },
+    "Trigger Swap": {
+        "combat": {
+            "Aim Ranged": "buttonRT",
+            "Power Attack": "buttonLT",
+            "Block/Parry": "buttonRB",
+            "Basic Attack": "buttonLB",
+        },
+        "menus": {},
+        "horse": {},
+    },
+}
+
+
+def save_profile_v3(
+    name: str,
+    assignments: dict[str, dict[str, str]],
+    profiles_dir: Path = DEFAULT_PROFILES_DIR,
+) -> Path:
+    """Save a v3 action-assignment profile."""
+    profiles_dir.mkdir(parents=True, exist_ok=True)
+    slug = _slugify(name)
+    data = {
+        "format_version": "3.0",
+        "name": name,
+        **assignments,
+    }
+    path = profiles_dir / f"{slug}.json"
+    path.write_text(json.dumps(data, indent=2))
+    return path
+
+
+def load_profile_v3(
+    slug: str,
+    profiles_dir: Path = DEFAULT_PROFILES_DIR,
+) -> dict:
+    """Load a v3 profile. Returns dict with name, format_version, combat, menus, horse."""
+    path = profiles_dir / f"{slug}.json"
+    data = json.loads(path.read_text())
+
+    # v2 migration: convert swap list to action assignments
+    if data.get("format_version") == "2.0" and "swaps" in data:
+        from .actions import get_defaults
+        combat_defaults = get_defaults("combat")
+        assignments = dict(combat_defaults)
+        for swap in data["swaps"]:
+            for action, btn in combat_defaults.items():
+                if btn == swap["source"]:
+                    assignments[action] = swap["target"]
+        changed = {a: b for a, b in assignments.items() if b != combat_defaults[a]}
+        data = {
+            "format_version": "3.0",
+            "name": data.get("name", slug),
+            "combat": changed,
+            "menus": {},
+            "horse": {},
+        }
+
+    if "combat" not in data:
+        data["combat"] = {}
+    if "menus" not in data:
+        data["menus"] = {}
+    if "horse" not in data:
+        data["horse"] = {}
+
+    return data
