@@ -178,15 +178,25 @@ def apply_paz_patch(patches: list[tuple[str, bytes]], game_dir: Path, *, progres
     pamt_bytes = bytearray((game_dir / PAZ_FOLDER / "0.pamt").read_bytes())
     paz_count = struct.unpack_from("<I", pamt_bytes, 4)[0]
 
+    # Aggregate progress: each file is read + written, so total = 2x sum of file sizes
+    grand_total = sum(Path(e.paz_file).stat().st_size * 2 for _, _, e in resolved)
+    done_so_far = [0]  # mutable for closure
+
+    def _aggregate_cb(phase, bytes_done, file_total):
+        if progress_cb:
+            progress_cb(phase, done_so_far[0] + bytes_done, grand_total)
+
     for target, xml_bytes, entry in resolved:
         paz_path = Path(entry.paz_file)
+        paz_file_size = paz_path.stat().st_size
 
         payload, actual_comp, actual_orig = repack_entry_bytes(
             xml_bytes, entry, allow_size_change=True
         )
 
         paz_name = f"{entry.paz_index}.paz"
-        buf = _chunked_read(paz_path, progress_cb, f"Reading {paz_name}")
+        buf = _chunked_read(paz_path, _aggregate_cb, f"Reading {paz_name}")
+        done_so_far[0] += paz_file_size
 
         if actual_comp <= entry.comp_size:
             buf[entry.offset: entry.offset + len(payload)] = payload
@@ -197,7 +207,8 @@ def apply_paz_patch(patches: list[tuple[str, bytes]], game_dir: Path, *, progres
             buf += payload
             new_paz_size = len(buf)
 
-        _chunked_write(paz_path, buf, progress_cb, f"Writing {paz_name}")
+        _chunked_write(paz_path, buf, _aggregate_cb, f"Writing {paz_name}")
+        done_so_far[0] += len(buf)
 
         # Update PAMT file record
         _apply_pamt_entry_update(
@@ -215,7 +226,7 @@ def apply_paz_patch(patches: list[tuple[str, bytes]], game_dir: Path, *, progres
             struct.pack_into("<I", pamt_bytes, size_off, new_paz_size)
 
     if progress_cb:
-        progress_cb("Updating indexes", 0, 1)
+        progress_cb("Updating indexes", grand_total, grand_total)
 
     # Recompute PAMT outer hash
     outer_hash = compute_pamt_hash(bytes(pamt_bytes))
@@ -246,15 +257,25 @@ def remove_paz_patch(game_dir: Path, *, progress_cb=None) -> dict:
     if not (backup / PAZ_FOLDER / "0.pamt").exists():
         return {"ok": False, "message": "No backup found. Nothing to restore."}
 
-    # Restore PAMT and PAPGT always
+    # Collect all files to restore and compute aggregate size
+    restore_files = []
     for rel in (f"{PAZ_FOLDER}/0.pamt", "meta/0.papgt"):
         src = backup / rel
         if src.exists():
-            _chunked_copy(src, game_dir / rel, progress_cb, f"Restoring {Path(rel).name}")
-
-    # Restore whichever PAZ files were backed up
+            restore_files.append((src, game_dir / rel, Path(rel).name))
     paz_backup_dir = backup / PAZ_FOLDER
     for f in paz_backup_dir.glob("*.paz"):
-        _chunked_copy(f, game_dir / PAZ_FOLDER / f.name, progress_cb, f"Restoring {f.name}")
+        restore_files.append((f, game_dir / PAZ_FOLDER / f.name, f.name))
+
+    grand_total = sum(src.stat().st_size for src, _, _ in restore_files)
+    done_so_far = [0]
+
+    def _aggregate_cb(phase, bytes_done, file_total):
+        if progress_cb:
+            progress_cb(phase, done_so_far[0] + bytes_done, grand_total)
+
+    for src, dst, name in restore_files:
+        _chunked_copy(src, dst, _aggregate_cb, f"Restoring {name}")
+        done_so_far[0] += src.stat().st_size
 
     return {"ok": True, "message": "Vanilla PAZ restored."}
