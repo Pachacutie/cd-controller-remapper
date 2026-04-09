@@ -231,9 +231,13 @@ def apply_remap(
 
 
 def _extract_vanilla_xmls(game_dir: Path) -> tuple[bytes, bytes]:
-    """Extract vanilla XMLs — from backup if PAZ was already patched, else live."""
+    """Extract vanilla XMLs — from backup if complete, else live game dir."""
     backup_paz_dir = _backup_dir() / PAZ_FOLDER
-    if (backup_paz_dir / "0.pamt").exists():
+    use_backup = (
+        (backup_paz_dir / "0.pamt").exists()
+        and all(Path(p).exists() for p in _paz_files_for_targets(backup_paz_dir))
+    )
+    if use_backup:
         entries = parse_pamt(str(backup_paz_dir / "0.pamt"), str(backup_paz_dir))
     else:
         paz_dir = game_dir / PAZ_FOLDER
@@ -241,6 +245,12 @@ def _extract_vanilla_xmls(game_dir: Path) -> tuple[bytes, bytes]:
     common = _extract_entry(entries, TARGET_FILE)
     override = _extract_entry(entries, TARGET_FILE_OVERRIDE)
     return common, override
+
+
+def _paz_files_for_targets(paz_dir: Path) -> list[str]:
+    """Return PAZ file paths needed for both target XMLs."""
+    entries = parse_pamt(str(paz_dir / "0.pamt"), str(paz_dir))
+    return [e.paz_file for e in entries if e.path in (TARGET_FILE, TARGET_FILE_OVERRIDE)]
 
 
 def _apply_patched_xmls(
