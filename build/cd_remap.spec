@@ -2,8 +2,7 @@
 import os
 from PyInstaller.utils.hooks import collect_all
 
-SPEC_DIR = os.path.dirname(os.path.abspath(SPECPATH))
-PROJECT_ROOT = os.path.dirname(SPEC_DIR)
+PROJECT_ROOT = os.path.dirname(os.path.abspath(SPECPATH))
 
 datas = [(os.path.join(PROJECT_ROOT, 'assets', 'controller.png'), 'assets')]
 binaries = []
