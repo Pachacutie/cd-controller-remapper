@@ -7,7 +7,9 @@ from .vendor.paz_parse import parse_pamt
 from .vendor.paz_crypto import decrypt, lz4_decompress
 from .vendor.paz_patcher import apply_paz_patch, remove_paz_patch, _backup_dir
 
+# Both files must be patched — inputmap.xml overrides combat bindings
 TARGET_FILE = "ui/inputmap_common.xml"
+TARGET_FILE_OVERRIDE = "ui/inputmap.xml"
 PAZ_FOLDER = "0012"
 
 VALID_BUTTONS = frozenset([
@@ -161,6 +163,21 @@ def count_affected(xml_bytes: bytes, swaps: dict[str, str]) -> int:
     return count
 
 
+def _extract_entry(entries: list, target: str) -> bytes:
+    """Extract and decrypt a single file from parsed PAMT entries."""
+    entry = next((e for e in entries if e.path == target), None)
+    if entry is None:
+        raise FileNotFoundError(f"{target} not found in PAZ folder {PAZ_FOLDER}")
+    with open(entry.paz_file, "rb") as f:
+        f.seek(entry.offset)
+        raw = f.read(entry.comp_size)
+    if entry.encrypted:
+        raw = decrypt(raw, entry.path)
+    if entry.compressed:
+        raw = lz4_decompress(raw, entry.orig_size)
+    return raw
+
+
 def extract_xml(game_dir: Path = DEFAULT_GAME_DIR) -> bytes:
     """Extract and decrypt ui/inputmap_common.xml from PAZ 0012."""
     paz_dir = game_dir / PAZ_FOLDER
@@ -170,20 +187,21 @@ def extract_xml(game_dir: Path = DEFAULT_GAME_DIR) -> bytes:
             f"Make sure Crimson Desert is installed, or use --game-dir to specify the path."
         )
     entries = parse_pamt(str(paz_dir / "0.pamt"), str(paz_dir))
-    entry = next((e for e in entries if e.path == TARGET_FILE), None)
-    if entry is None:
-        raise FileNotFoundError(f"{TARGET_FILE} not found in PAZ folder {PAZ_FOLDER}")
+    return _extract_entry(entries, TARGET_FILE)
 
-    with open(entry.paz_file, "rb") as f:
-        f.seek(entry.offset)
-        raw = f.read(entry.comp_size)
 
-    if entry.encrypted:
-        raw = decrypt(raw, entry.path)
-    if entry.compressed:
-        raw = lz4_decompress(raw, entry.orig_size)
-
-    return raw
+def extract_both_xmls(game_dir: Path = DEFAULT_GAME_DIR) -> tuple[bytes, bytes]:
+    """Extract both inputmap_common.xml and inputmap.xml from PAZ 0012."""
+    paz_dir = game_dir / PAZ_FOLDER
+    if not paz_dir.exists():
+        raise FileNotFoundError(
+            f"Game directory not found: {game_dir}\n"
+            f"Make sure Crimson Desert is installed, or use --game-dir to specify the path."
+        )
+    entries = parse_pamt(str(paz_dir / "0.pamt"), str(paz_dir))
+    common = _extract_entry(entries, TARGET_FILE)
+    override = _extract_entry(entries, TARGET_FILE_OVERRIDE)
+    return common, override
 
 
 def apply_remap(
@@ -191,57 +209,56 @@ def apply_remap(
     game_dir: Path = DEFAULT_GAME_DIR,
     dry_run: bool = False,
 ) -> dict:
-    """Extract XML, apply swaps, patch PAZ in-place. Returns summary dict."""
+    """Extract XMLs, apply swaps, patch PAZ in-place. Returns summary dict."""
     errors = validate_swaps(swaps)
     if errors:
         return {"ok": False, "errors": errors}
 
-    xml = extract_xml(game_dir)
-    affected = count_affected(xml, swaps)
-    patched = apply_swaps(xml, swaps)
+    common, override = extract_both_xmls(game_dir)
+    affected = count_affected(common, swaps) + count_affected(override, swaps)
+    patched_common = apply_swaps(common, swaps)
+    patched_override = apply_swaps(override, swaps)
 
     if dry_run:
         return {"ok": True, "affected": affected, "dry_run": True}
 
-    result = apply_paz_patch(patched, game_dir)
+    result = apply_paz_patch(
+        [(TARGET_FILE, patched_common), (TARGET_FILE_OVERRIDE, patched_override)],
+        game_dir,
+    )
     result["affected"] = affected
     return result
 
 
-def _extract_vanilla_xml(game_dir: Path) -> bytes:
-    """Extract vanilla XML — from backup if PAZ was already patched, else from live PAZ."""
-    backup_pamt = _backup_dir() / PAZ_FOLDER / "0.pamt"
+def _extract_vanilla_xmls(game_dir: Path) -> tuple[bytes, bytes]:
+    """Extract vanilla XMLs — from backup if PAZ was already patched, else live."""
     backup_paz_dir = _backup_dir() / PAZ_FOLDER
-    if backup_pamt.exists():
-        return _extract_xml_from(backup_paz_dir)
-    return extract_xml(game_dir)
+    if (backup_paz_dir / "0.pamt").exists():
+        entries = parse_pamt(str(backup_paz_dir / "0.pamt"), str(backup_paz_dir))
+    else:
+        paz_dir = game_dir / PAZ_FOLDER
+        entries = parse_pamt(str(paz_dir / "0.pamt"), str(paz_dir))
+    common = _extract_entry(entries, TARGET_FILE)
+    override = _extract_entry(entries, TARGET_FILE_OVERRIDE)
+    return common, override
 
 
-def _extract_xml_from(paz_dir: Path) -> bytes:
-    """Extract inputmap_common.xml from a specific PAZ directory."""
-    entries = parse_pamt(str(paz_dir / "0.pamt"), str(paz_dir))
-    entry = next((e for e in entries if e.path == TARGET_FILE), None)
-    if entry is None:
-        raise FileNotFoundError(f"{TARGET_FILE} not found in {paz_dir}")
-    with open(entry.paz_file, "rb") as f:
-        f.seek(entry.offset)
-        raw = f.read(entry.comp_size)
-    if entry.encrypted:
-        raw = decrypt(raw, entry.path)
-    if entry.compressed:
-        raw = lz4_decompress(raw, entry.orig_size)
-    return raw
-
-
-def _apply_patched_xml(
-    patched_xml: bytes,
+def _apply_patched_xmls(
+    patched_common: bytes,
+    patched_override: bytes,
     game_dir: Path = DEFAULT_GAME_DIR,
 ) -> dict:
-    """Patch PAZ with pre-patched XML bytes. Used by GUI for context-aware apply."""
-    original_xml = _extract_vanilla_xml(game_dir)
-    affected = sum(1 for a, b in zip(original_xml.split(b"\n"), patched_xml.split(b"\n")) if a != b)
+    """Patch PAZ with pre-patched XML bytes for both input maps. Used by GUI."""
+    orig_common, orig_override = _extract_vanilla_xmls(game_dir)
+    affected = (
+        sum(1 for a, b in zip(orig_common.split(b"\n"), patched_common.split(b"\n")) if a != b)
+        + sum(1 for a, b in zip(orig_override.split(b"\n"), patched_override.split(b"\n")) if a != b)
+    )
 
-    result = apply_paz_patch(patched_xml, game_dir)
+    result = apply_paz_patch(
+        [(TARGET_FILE, patched_common), (TARGET_FILE_OVERRIDE, patched_override)],
+        game_dir,
+    )
     result["affected"] = affected
     return result
 

@@ -7,9 +7,10 @@ from cd_remap.vendor.paz_patcher import (
     apply_paz_patch,
     remove_paz_patch,
     _backup_dir,
-    TARGET_FILE,
     PAZ_FOLDER,
 )
+
+TARGET_FILE = "ui/inputmap_common.xml"
 from cd_remap.vendor.paz_parse import parse_pamt, PazEntry
 from cd_remap.vendor.paz_crypto import decrypt, lz4_decompress
 from cd_remap.vendor.hashlittle import compute_pamt_hash
@@ -137,13 +138,13 @@ class TestApplyPazPatch:
 
     def test_apply_returns_ok(self, tmp_path, monkeypatch):
         game_dir, _paz, _pamt = self._setup(tmp_path, monkeypatch)
-        result = apply_paz_patch(MODIFIED, game_dir)
+        result = apply_paz_patch([(TARGET_FILE, MODIFIED)], game_dir)
         assert result == {"ok": True}
 
     def test_apply_same_size_content_readable(self, tmp_path, monkeypatch):
         """Apply a patch and verify modified content is extractable."""
         game_dir, _paz, _pamt = self._setup(tmp_path, monkeypatch)
-        apply_paz_patch(MODIFIED, game_dir)
+        apply_paz_patch([(TARGET_FILE, MODIFIED)], game_dir)
 
         pamt_path = str(game_dir / PAZ_FOLDER / "0.pamt")
         paz_dir = str(game_dir / PAZ_FOLDER)
@@ -158,7 +159,7 @@ class TestApplyPazPatch:
         backup = tmp_path / "backup"
         monkeypatch.setattr("cd_remap.vendor.paz_patcher._backup_dir", lambda: backup)
 
-        apply_paz_patch(MODIFIED, game_dir)
+        apply_paz_patch([(TARGET_FILE, MODIFIED)], game_dir)
 
         assert (backup / PAZ_FOLDER / "0.paz").exists()
         assert (backup / PAZ_FOLDER / "0.pamt").exists()
@@ -170,10 +171,10 @@ class TestApplyPazPatch:
         backup = tmp_path / "backup"
         monkeypatch.setattr("cd_remap.vendor.paz_patcher._backup_dir", lambda: backup)
 
-        apply_paz_patch(MODIFIED, game_dir)
+        apply_paz_patch([(TARGET_FILE, MODIFIED)], game_dir)
         backup_paz_after_first = (backup / PAZ_FOLDER / "0.paz").read_bytes()
 
-        apply_paz_patch(PLAINTEXT, game_dir)
+        apply_paz_patch([(TARGET_FILE, PLAINTEXT)], game_dir)
         backup_paz_after_second = (backup / PAZ_FOLDER / "0.paz").read_bytes()
 
         # Backup should still be the original (pre-first-apply) content
@@ -182,7 +183,7 @@ class TestApplyPazPatch:
     def test_pamt_hash_updated(self, tmp_path, monkeypatch):
         """After apply, PAMT integrity hash is valid."""
         game_dir, _paz, _pamt = self._setup(tmp_path, monkeypatch)
-        apply_paz_patch(MODIFIED, game_dir)
+        apply_paz_patch([(TARGET_FILE, MODIFIED)], game_dir)
 
         pamt_bytes = (game_dir / PAZ_FOLDER / "0.pamt").read_bytes()
         stored_hash = struct.unpack_from("<I", pamt_bytes, 0)[0]
@@ -193,7 +194,7 @@ class TestApplyPazPatch:
         """Content that grows beyond comp_size is appended to PAZ."""
         game_dir, orig_paz, _pamt = self._setup(tmp_path, monkeypatch)
         large_content = PLAINTEXT + b"\n<!-- " + b"X" * 10000 + b" -->"
-        apply_paz_patch(large_content, game_dir)
+        apply_paz_patch([(TARGET_FILE, large_content)], game_dir)
 
         new_paz = (game_dir / PAZ_FOLDER / "0.paz").read_bytes()
         assert len(new_paz) > len(orig_paz)
@@ -203,6 +204,43 @@ class TestApplyPazPatch:
         entries = parse_pamt(pamt_path, paz_dir=paz_dir)
         result = _extract_entry(game_dir, entries[0])
         assert result == large_content
+
+    def test_apply_multiple_files(self, tmp_path, monkeypatch):
+        """Patching two files in a single call updates both correctly."""
+        from fixtures import build_multi_file_paz
+
+        file_a = "ui/inputmap_common.xml"
+        file_b = "ui/inputmap.xml"
+        content_a = b'<Input><GamePad Key="buttonA"/></Input>\n' * 15
+        content_b = b'<Input><GamePad Key="buttonX"/></Input>\n' * 15
+
+        paz_bytes, pamt_bytes, papgt_bytes = build_multi_file_paz(
+            [(file_a, content_a), (file_b, content_b)]
+        )
+        game_dir = _write_game_dir(tmp_path / "game", paz_bytes, pamt_bytes, papgt_bytes)
+        backup = tmp_path / "backup"
+        monkeypatch.setattr("cd_remap.vendor.paz_patcher._backup_dir", lambda: backup)
+
+        modified_a = content_a.replace(b"buttonA", b"buttonB")
+        modified_b = content_b.replace(b"buttonX", b"buttonY")
+
+        result = apply_paz_patch([(file_a, modified_a), (file_b, modified_b)], game_dir)
+        assert result == {"ok": True}
+
+        # Re-parse and verify both entries were patched
+        pamt_path = str(game_dir / PAZ_FOLDER / "0.pamt")
+        paz_dir = str(game_dir / PAZ_FOLDER)
+        entries = parse_pamt(pamt_path, paz_dir=paz_dir)
+        assert len(entries) == 2
+
+        for entry in entries:
+            extracted = _extract_entry(game_dir, entry)
+            if entry.path == file_a:
+                assert b"buttonB" in extracted
+                assert b"buttonA" not in extracted
+            elif entry.path == file_b:
+                assert b"buttonY" in extracted
+                assert b"buttonX" not in extracted
 
 
 # ── TestRemovePazPatch ────────────────────────────────────────────────
@@ -220,7 +258,7 @@ class TestRemovePazPatch:
     def test_restores_vanilla(self, tmp_path, monkeypatch):
         game_dir, orig_paz, orig_pamt, orig_papgt = self._setup(tmp_path, monkeypatch)
 
-        apply_paz_patch(MODIFIED, game_dir)
+        apply_paz_patch([(TARGET_FILE, MODIFIED)], game_dir)
         result = remove_paz_patch(game_dir)
 
         assert result["ok"] is True
@@ -230,7 +268,7 @@ class TestRemovePazPatch:
 
     def test_remove_returns_message(self, tmp_path, monkeypatch):
         game_dir, _paz, _pamt, _papgt = self._setup(tmp_path, monkeypatch)
-        apply_paz_patch(MODIFIED, game_dir)
+        apply_paz_patch([(TARGET_FILE, MODIFIED)], game_dir)
         result = remove_paz_patch(game_dir)
         assert "message" in result
         assert result["ok"] is True

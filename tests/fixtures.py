@@ -41,6 +41,82 @@ def build_test_paz_pamt_papgt(
     }
 
 
+def build_multi_file_paz(
+    files: list[tuple[str, bytes]],
+    paz_dir_name: str = "0012",
+) -> tuple[bytes, bytes, bytes]:
+    """Build PAZ/PAMT/PAPGT with multiple files in a single PAZ archive.
+
+    Args:
+        files: list of (entry_path, plaintext) tuples — all share folder "ui/"
+
+    Returns:
+        (paz_bytes, pamt_bytes, papgt_bytes)
+    """
+    # Build PAZ: concatenate encrypted+compressed payloads
+    paz_parts = []
+    entries_info = []
+    offset = 0
+    for path, plaintext in files:
+        compressed = lz4.block.compress(plaintext, store_size=False)
+        encrypted = encrypt(compressed, path)
+        paz_parts.append(encrypted)
+        entries_info.append((path, offset, len(compressed), len(plaintext)))
+        offset += len(encrypted)
+
+    paz_bytes = b"".join(paz_parts)
+    pamt_bytes = _build_multi_file_pamt(paz_bytes, entries_info)
+    papgt_bytes = _build_minimal_papgt(pamt_bytes, paz_dir_name)
+    return paz_bytes, pamt_bytes, papgt_bytes
+
+
+def _build_multi_file_pamt(
+    paz_data: bytes,
+    entries: list[tuple[str, int, int, int]],
+) -> bytes:
+    """Build PAMT with multiple file entries in the same folder and PAZ file.
+
+    entries: list of (path, offset, comp_size, orig_size) — all must share a folder prefix.
+    """
+    # All entries must share the same folder
+    folder = entries[0][0].split("/", 1)[0]
+    filenames = [path.split("/", 1)[1] for path, *_ in entries]
+
+    folder_name_b = folder.encode("utf-8")
+    folder_record = struct.pack("<IB", 0xFFFFFFFF, len(folder_name_b)) + folder_name_b
+    folder_section = struct.pack("<I", len(folder_record)) + folder_record
+
+    # Build node section — one node per file
+    node_records = b""
+    for fn in filenames:
+        fn_b = fn.encode("utf-8")
+        node_records += struct.pack("<IB", 0xFFFFFFFF, len(fn_b)) + fn_b
+    node_section = struct.pack("<I", len(node_records)) + node_records
+
+    # folder_records: 1 folder, file_count = len(entries)
+    folder_records = struct.pack("<IIIII", 1, 0, 0, 0, len(entries))
+
+    # file_records: each file is 20 bytes
+    file_data = b""
+    node_offset = 0
+    for i, (path, offset, comp_size, orig_size) in enumerate(entries):
+        flags = 0x00020000  # LZ4, paz_index=0
+        file_data += struct.pack("<IIIII", node_offset, offset, comp_size, orig_size, flags)
+        fn_b = filenames[i].encode("utf-8")
+        node_offset += 5 + len(fn_b)  # IB + name
+    file_records = struct.pack("<I", len(entries)) + file_data
+
+    paz_hash = hashlittle(paz_data, INTEGRITY_SEED)
+    paz_size = len(paz_data)
+
+    body = struct.pack("<IIII", 1, 0x610E0232, 0, paz_hash)
+    body += struct.pack("<I", paz_size)
+    body += folder_section + node_section + folder_records + file_records
+
+    outer_hash = hashlittle(body[8:], INTEGRITY_SEED)
+    return struct.pack("<I", outer_hash) + body
+
+
 def _build_minimal_pamt(
     paz_data: bytes,
     entry_path: str,
