@@ -1,6 +1,7 @@
 """Dear PyGui main window — action-based controller remapping."""
 import dearpygui.dearpygui as dpg
 from pathlib import Path
+import threading
 
 from . import VERSION
 from .gamepad import GamepadPoller
@@ -59,6 +60,7 @@ class RemapGUI:
         self.active_profile: str | None = None
         self.hovered_button: str | None = None
         self.drawlist = None
+        self._progress = {}
 
         # Action assignments per context: {context: {action_name: button_id}}
         self.assignments: dict[str, dict[str, str]] = {}
@@ -317,7 +319,6 @@ class RemapGUI:
     def _on_apply_confirm(self):
         dpg.configure_item("apply_modal", show=False)
         try:
-            # Collect swaps from all contexts
             all_swaps = []
             for ctx in ALL_CONTEXTS:
                 defaults = get_defaults(ctx)
@@ -325,7 +326,6 @@ class RemapGUI:
                 swaps = diff_to_swaps(defaults, self.assignments[ctx], swap_ctx)
                 all_swaps.extend(swaps)
 
-            # Deduplicate (combat and horse share gameplay context)
             seen = set()
             unique_swaps = []
             for s in all_swaps:
@@ -341,20 +341,12 @@ class RemapGUI:
             common, override = extract_both_xmls(self.game_dir)
             patched_common = apply_swaps_contextual(common, unique_swaps)
             patched_override = apply_swaps_contextual(override, unique_swaps)
-            result = _apply_patched_xmls(patched_common, patched_override, self.game_dir)
-            if result["ok"]:
-                self._set_status(f"Applied! {result['affected']} bindings remapped.")
-            else:
-                self._set_status("Error applying remap.")
+            self._start_worker(self._worker_apply, (patched_common, patched_override))
         except Exception as e:
             self._set_status(f"Error: {e}")
 
     def _on_undo(self):
-        try:
-            result = remove_remap(self.game_dir)
-            self._set_status(f"Undo: {result.get('message', 'Done')}")
-        except Exception as e:
-            self._set_status(f"Error: {e}")
+        self._start_worker(self._worker_undo)
 
     def _on_change_game_dir(self):
         dpg.configure_item("dir_dialog", show=True)
@@ -372,6 +364,53 @@ class RemapGUI:
     def _set_status(self, msg: str):
         if dpg.does_item_exist("status_text"):
             dpg.set_value("status_text", msg)
+
+    _DISABLE_TAGS = ("btn_reset", "btn_save", "btn_apply", "btn_undo", "btn_settings")
+
+    def _disable_buttons(self):
+        for tag in self._DISABLE_TAGS:
+            if dpg.does_item_exist(tag):
+                dpg.configure_item(tag, enabled=False)
+
+    def _enable_buttons(self):
+        for tag in self._DISABLE_TAGS:
+            if dpg.does_item_exist(tag):
+                dpg.configure_item(tag, enabled=True)
+
+    def _update_progress(self, phase, bytes_done, total_bytes):
+        self._progress["phase"] = phase
+        self._progress["bytes_done"] = bytes_done
+        self._progress["total_bytes"] = total_bytes
+
+    def _start_worker(self, target, args=()):
+        self._progress.clear()
+        self._progress.update(phase="", bytes_done=0, total_bytes=0,
+                              done=False, result=None, error=None)
+        self._disable_buttons()
+        dpg.set_value("progress_bar", 0.0)
+        dpg.set_value("progress_label", "Starting...")
+        dpg.set_value("progress_pct", "0%")
+        dpg.configure_item("progress_modal", show=True)
+        threading.Thread(target=target, args=args, daemon=True).start()
+
+    def _worker_apply(self, patched_common, patched_override):
+        try:
+            result = _apply_patched_xmls(
+                patched_common, patched_override, self.game_dir,
+                progress_cb=self._update_progress,
+            )
+            self._progress["result"] = result
+        except Exception as e:
+            self._progress["error"] = str(e)
+        self._progress["done"] = True
+
+    def _worker_undo(self):
+        try:
+            result = remove_remap(self.game_dir, progress_cb=self._update_progress)
+            self._progress["result"] = result
+        except Exception as e:
+            self._progress["error"] = str(e)
+        self._progress["done"] = True
 
     def build(self):
         dpg.create_context()
@@ -419,6 +458,14 @@ class RemapGUI:
                 dpg.add_button(label="Cancel",
                                callback=lambda: dpg.configure_item("apply_modal", show=False))
 
+        # Progress modal
+        with dpg.window(label="Working...", modal=True, show=False,
+                        tag="progress_modal", width=400, height=100,
+                        no_resize=True, no_close=True, no_move=True):
+            dpg.add_text("Initializing...", tag="progress_label")
+            dpg.add_progress_bar(tag="progress_bar", default_value=0.0, width=-1)
+            dpg.add_text("0%", tag="progress_pct")
+
         # Main window
         with dpg.window(tag="main_window"):
             dpg.add_text(f"CD Controller Remapper v{VERSION}")
@@ -463,12 +510,12 @@ class RemapGUI:
                 dpg.add_text("Controller:", color=(200, 200, 200))
                 dpg.add_text(status, tag="gamepad_status", color=color)
                 dpg.add_spacer(width=20)
-                dpg.add_button(label="Reset", callback=self._on_reset)
-                dpg.add_button(label="Save", callback=self._on_save)
-                dpg.add_button(label="Apply", callback=self._on_apply)
-                dpg.add_button(label="Undo All", callback=self._on_undo)
+                dpg.add_button(label="Reset", tag="btn_reset", callback=self._on_reset)
+                dpg.add_button(label="Save", tag="btn_save", callback=self._on_save)
+                dpg.add_button(label="Apply", tag="btn_apply", callback=self._on_apply)
+                dpg.add_button(label="Undo All", tag="btn_undo", callback=self._on_undo)
                 dpg.add_spacer(width=20)
-                dpg.add_button(label="Settings",
+                dpg.add_button(label="Settings", tag="btn_settings",
                                callback=lambda: dpg.configure_item("settings_modal", show=True))
 
             dpg.add_text(
@@ -499,6 +546,26 @@ class RemapGUI:
                 else:
                     dpg.set_value("gamepad_status", "Not detected")
                     dpg.configure_item("gamepad_status", color=(150, 150, 150))
+
+            # Poll worker thread progress
+            if self._progress.get("done"):
+                dpg.configure_item("progress_modal", show=False)
+                self._enable_buttons()
+                if self._progress.get("error"):
+                    self._set_status(f"Error: {self._progress['error']}")
+                elif self._progress.get("result"):
+                    r = self._progress["result"]
+                    if "affected" in r:
+                        self._set_status(f"Applied! {r['affected']} bindings remapped.")
+                    else:
+                        self._set_status(f"Undo: {r.get('message', 'Done')}")
+                self._progress.clear()
+            elif self._progress.get("phase"):
+                total = self._progress["total_bytes"]
+                frac = self._progress["bytes_done"] / total if total else 0
+                dpg.set_value("progress_bar", frac)
+                dpg.set_value("progress_label", self._progress["phase"])
+                dpg.set_value("progress_pct", f"{int(frac * 100)}%")
 
             dpg.render_dearpygui_frame()
 
