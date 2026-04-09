@@ -359,8 +359,7 @@ def _read_existing_overlay(overlay_dir: Path, game_dir: Path) -> list[tuple[byte
             f.seek(entry.offset)
             data = f.read(entry.comp_size)
             # Decompress so build_overlay can re-compress uniformly
-            if entry.encrypted:
-                data = decrypt(data, entry.path)
+            # Overlay entries are NEVER encrypted (game VFS handles overlays differently)
             if entry.compressed:
                 data = lz4_decompress(data, entry.orig_size)
             result.append((
