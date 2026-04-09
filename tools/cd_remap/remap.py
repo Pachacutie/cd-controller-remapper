@@ -212,16 +212,13 @@ def apply_remap(
         backup_papgt.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(papgt_path, backup_papgt)
 
-    compressed = lz4_compress(patched)
-    encrypted = encrypt(compressed, TARGET_FILE)
-
+    # Pass raw bytes — build_overlay handles compression (no pre-encrypt for overlays)
     overlay_input = [(
-        encrypted,
+        patched,
         {
             "entry_path": TARGET_FILE,
             "compression_type": 2,
             "pamt_dir": PAZ_FOLDER,
-            "decomp_size": len(patched),
         },
     )]
 
@@ -258,16 +255,13 @@ def _apply_patched_xml(
         backup_papgt.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(papgt_path, backup_papgt)
 
-    compressed = lz4_compress(patched_xml)
-    encrypted = encrypt(compressed, TARGET_FILE)
-
+    # Pass raw bytes — build_overlay handles compression (no pre-encrypt for overlays)
     overlay_input = [(
-        encrypted,
+        patched_xml,
         {
             "entry_path": TARGET_FILE,
             "compression_type": 2,
             "pamt_dir": PAZ_FOLDER,
-            "decomp_size": len(patched_xml),
         },
     )]
 
@@ -364,13 +358,17 @@ def _read_existing_overlay(overlay_dir: Path, game_dir: Path) -> list[tuple[byte
         for entry in entries:
             f.seek(entry.offset)
             data = f.read(entry.comp_size)
+            # Decompress so build_overlay can re-compress uniformly
+            if entry.encrypted:
+                data = decrypt(data, entry.path)
+            if entry.compressed:
+                data = lz4_decompress(data, entry.orig_size)
             result.append((
                 data,
                 {
                     "entry_path": entry.path,
                     "compression_type": entry.compression_type,
-                    "pamt_dir": PAZ_FOLDER,  # overlay entries originate from known PAZ folders
-                    "decomp_size": entry.orig_size,
+                    "pamt_dir": PAZ_FOLDER,
                 },
             ))
     return result
