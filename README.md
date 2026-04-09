@@ -72,21 +72,21 @@ python build/build_exe.py
 
 ## How It Works
 
-Crimson Desert stores gamepad bindings in `inputmap_common.xml` inside PAZ archive `0012`. The tool:
+Crimson Desert has a two-layer input system. `inputmap_common.xml` provides baseline bindings (menus, HUD), while `inputmap.xml` overrides combat and character action bindings. Both live inside encrypted PAZ archive `0012`. The tool patches both files:
 
-1. Backs up the vanilla PAZ archive, PAMT index, and PAPGT hash registry
-2. Extracts and decrypts the XML (ChaCha20 + LZ4)
+1. Backs up the vanilla PAZ files, PAMT index, and PAPGT hash registry
+2. Extracts and decrypts both XMLs (ChaCha20 + LZ4)
 3. Swaps `GamePad Key=` values based on your assignments
-4. Re-compresses, re-encrypts, and patches the XML back into the PAZ archive
+4. Re-compresses, re-encrypts, and patches both XMLs back into the PAZ archive
 5. Updates the PAMT index and PAPGT integrity hashes
 
-Undo restores all three files from backup.
+Undo restores all files from backup.
 
 ## Tests
 
 ```bash
 pip install pytest
-python -m pytest tests/ -v    # 97 tests
+python -m pytest tests/ -v    # 98 tests
 ```
 
 ## License
