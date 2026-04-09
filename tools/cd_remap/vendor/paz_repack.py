@@ -10,8 +10,8 @@ import re
 
 import lz4.block
 
-from cd_remap.vendor.paz_parse import PazEntry
-from cd_remap.vendor.paz_crypto import encrypt
+from .paz_parse import PazEntry
+from .paz_crypto import encrypt
 
 
 # ── Size matching ────────────────────────────────────────────────────

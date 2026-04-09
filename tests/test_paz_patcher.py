@@ -86,24 +86,8 @@ class TestApplyPamtEntryUpdate:
         pattern = struct.pack("<IIII", entry.offset, new_comp, entry.orig_size + 100, entry.flags)
         assert pattern in bytes(data)
 
-    def test_updates_paz_size_in_header(self, tmp_path):
-        paz_bytes, pamt_bytes, _papgt, _info = build_test_paz_pamt_papgt(
-            PLAINTEXT, TARGET_FILE, PAZ_FOLDER
-        )
-        entry = _parse_entry_from_pamt(pamt_bytes, paz_bytes, tmp_path)
-
-        data = bytearray(pamt_bytes)
-        new_paz_size = len(paz_bytes) + 512
-        _apply_pamt_entry_update(data, entry, new_offset=entry.offset,
-                                 new_comp=entry.comp_size, new_orig=entry.orig_size,
-                                 new_paz_size=new_paz_size)
-
-        # PAZ size at header offset 20
-        stored_size = struct.unpack_from("<I", data, 20)[0]
-        assert stored_size == new_paz_size
-
-    def test_paz_size_not_shrunk(self, tmp_path):
-        """max(old_size, new_paz_size) — never write a smaller size."""
+    def test_does_not_touch_paz_size(self, tmp_path):
+        """_apply_pamt_entry_update only patches the file record, not PAZ size."""
         paz_bytes, pamt_bytes, _papgt, _info = build_test_paz_pamt_papgt(
             PLAINTEXT, TARGET_FILE, PAZ_FOLDER
         )
@@ -112,9 +96,10 @@ class TestApplyPamtEntryUpdate:
         original_paz_size = struct.unpack_from("<I", pamt_bytes, 20)[0]
         data = bytearray(pamt_bytes)
         _apply_pamt_entry_update(data, entry, new_offset=entry.offset,
-                                 new_comp=entry.comp_size, new_orig=entry.orig_size,
-                                 new_paz_size=1)
+                                 new_comp=entry.comp_size + 100,
+                                 new_orig=entry.orig_size)
 
+        # PAZ size at header offset 20 should be unchanged
         stored_size = struct.unpack_from("<I", data, 20)[0]
         assert stored_size == original_paz_size
 

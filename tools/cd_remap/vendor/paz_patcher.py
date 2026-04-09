@@ -17,10 +17,10 @@ import shutil
 import struct
 from pathlib import Path
 
-from cd_remap.vendor.paz_parse import parse_pamt, PazEntry
-from cd_remap.vendor.paz_repack import repack_entry_bytes
-from cd_remap.vendor.hashlittle import hashlittle, INTEGRITY_SEED, compute_pamt_hash
-from cd_remap.vendor.papgt_manager import PapgtManager
+from .paz_parse import parse_pamt, PazEntry
+from .paz_repack import repack_entry_bytes
+from .hashlittle import hashlittle, INTEGRITY_SEED, compute_pamt_hash
+from .papgt_manager import PapgtManager
 
 TARGET_FILE = "ui/inputmap_common.xml"
 PAZ_FOLDER = "0012"
@@ -35,14 +35,31 @@ def _backup_dir() -> Path:
     return Path.home() / ".cd_remap" / "backup"
 
 
-def _create_backup(game_dir: Path, backup: Path) -> None:
+def _create_backup(game_dir: Path, backup: Path, paz_index: int) -> None:
     """Copy vanilla PAZ/PAMT/PAPGT to backup dir. Skips if already exists."""
-    for rel in (f"{PAZ_FOLDER}/0.paz", f"{PAZ_FOLDER}/0.pamt", "meta/0.papgt"):
+    paz_file = f"{PAZ_FOLDER}/{paz_index}.paz"
+    for rel in (paz_file, f"{PAZ_FOLDER}/0.pamt", "meta/0.papgt"):
         dst = backup / rel
         if dst.exists():
             continue
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(game_dir / rel, dst)
+
+
+# ── PAMT PAZ table offset ────────────────────────────────────────────
+
+def _paz_table_offset(paz_index: int, paz_count: int) -> tuple[int, int]:
+    """Return (hash_offset, size_offset) in the PAMT for a given PAZ index.
+
+    PAMT PAZ table starts at offset 16. Each entry is 8 bytes (hash + size),
+    with 4-byte separators between entries.
+    """
+    off = 16
+    for i in range(paz_index):
+        off += 8  # hash + size
+        if i < paz_count - 1:
+            off += 4  # separator
+    return off, off + 4
 
 
 # ── PAMT binary record update ────────────────────────────────────────
@@ -53,13 +70,11 @@ def _apply_pamt_entry_update(
     new_offset: int,
     new_comp: int,
     new_orig: int,
-    new_paz_size: int | None = None,
 ) -> None:
-    """Patch a PAMT bytearray in place.
+    """Patch a PAMT file-record bytearray in place.
 
-    Finds the 16-byte pattern (offset, comp_size, orig_size, flags) in the
-    file-record section, then overwrites offset/comp_size/orig_size.
-    Optionally updates PAZ size at PAMT offset 20 (taking the max of old/new).
+    Finds the 20-byte pattern (node_ref, offset, comp_size, orig_size, flags)
+    in the file-record section, then overwrites offset/comp_size/orig_size.
 
     Raises ValueError if the file record is not found.
     """
@@ -73,15 +88,11 @@ def _apply_pamt_entry_update(
 
     struct.pack_into("<III", data, pos, new_offset, new_comp, new_orig)
 
-    if new_paz_size is not None:
-        old_size = struct.unpack_from("<I", data, 20)[0]
-        struct.pack_into("<I", data, 20, max(old_size, new_paz_size))
-
 
 # ── Apply / Remove ───────────────────────────────────────────────────
 
 def apply_paz_patch(patched_xml: bytes, game_dir: Path) -> dict:
-    """Write patched XML back into PAZ 0012 and update PAMT + PAPGT.
+    """Write patched XML back into the correct PAZ file and update PAMT + PAPGT.
 
     Args:
         patched_xml: modified plaintext XML bytes
@@ -91,22 +102,25 @@ def apply_paz_patch(patched_xml: bytes, game_dir: Path) -> dict:
         {"ok": True}
     """
     game_dir = Path(game_dir)
-    backup = _backup_dir()
-    _create_backup(game_dir, backup)
 
-    # Locate entry
+    # Locate entry — parse_pamt resolves the correct PAZ file via paz_index
     pamt_path = str(game_dir / PAZ_FOLDER / "0.pamt")
     paz_dir = str(game_dir / PAZ_FOLDER)
     entries = parse_pamt(pamt_path, paz_dir=paz_dir)
     entry = next(e for e in entries if e.path == TARGET_FILE)
+
+    paz_index = entry.paz_index
+    paz_path = Path(entry.paz_file)
+
+    backup = _backup_dir()
+    _create_backup(game_dir, backup, paz_index)
 
     # Repack: allow size growth
     payload, actual_comp, actual_orig = repack_entry_bytes(
         patched_xml, entry, allow_size_change=True
     )
 
-    # Read PAZ
-    paz_path = game_dir / PAZ_FOLDER / "0.paz"
+    # Read the correct PAZ file
     buf = bytearray(paz_path.read_bytes())
 
     if actual_comp <= entry.comp_size:
@@ -123,19 +137,25 @@ def apply_paz_patch(patched_xml: bytes, game_dir: Path) -> dict:
     paz_path.write_bytes(buf)
     paz_data = bytes(buf)
 
-    # Patch PAMT
+    # Patch PAMT — file record
     pamt_bytes = bytearray((game_dir / PAZ_FOLDER / "0.pamt").read_bytes())
     _apply_pamt_entry_update(
         pamt_bytes, entry,
         new_offset=new_offset,
         new_comp=actual_comp,
         new_orig=actual_orig,
-        new_paz_size=new_paz_size,
     )
 
-    # Update PAZ hash at offset 16
+    # Read PAMT header to get paz_count
+    paz_count = struct.unpack_from("<I", pamt_bytes, 4)[0]
+
+    # Update PAZ hash and size at the correct PAZ table offset
+    hash_off, size_off = _paz_table_offset(paz_index, paz_count)
     paz_hash = hashlittle(paz_data, INTEGRITY_SEED)
-    struct.pack_into("<I", pamt_bytes, 16, paz_hash)
+    struct.pack_into("<I", pamt_bytes, hash_off, paz_hash)
+
+    if new_paz_size is not None:
+        struct.pack_into("<I", pamt_bytes, size_off, new_paz_size)
 
     # Recompute outer hash at offset 0
     outer_hash = compute_pamt_hash(bytes(pamt_bytes))
@@ -163,11 +183,19 @@ def remove_paz_patch(game_dir: Path) -> dict:
     """
     game_dir = Path(game_dir)
     backup = _backup_dir()
-    backup_paz = backup / PAZ_FOLDER / "0.paz"
-    if not backup_paz.exists():
+
+    if not (backup / PAZ_FOLDER / "0.pamt").exists():
         return {"ok": False, "message": "No backup found. Nothing to restore."}
 
-    for rel in (f"{PAZ_FOLDER}/0.paz", f"{PAZ_FOLDER}/0.pamt", "meta/0.papgt"):
-        shutil.copy2(backup / rel, game_dir / rel)
+    # Restore PAMT and PAPGT always
+    for rel in (f"{PAZ_FOLDER}/0.pamt", "meta/0.papgt"):
+        src = backup / rel
+        if src.exists():
+            shutil.copy2(src, game_dir / rel)
+
+    # Restore whichever PAZ files were backed up
+    paz_backup_dir = backup / PAZ_FOLDER
+    for f in paz_backup_dir.glob("*.paz"):
+        shutil.copy2(f, game_dir / PAZ_FOLDER / f.name)
 
     return {"ok": True, "message": "Vanilla PAZ restored."}

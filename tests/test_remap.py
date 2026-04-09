@@ -178,7 +178,10 @@ class TestPazPatchIntegration:
         """Full pipeline: extract -> swap -> patch -> re-extract -> verify."""
         from cd_remap.remap import extract_xml, _apply_patched_xml, apply_swaps
         from cd_remap.vendor import paz_patcher
-        monkeypatch.setattr(paz_patcher, "_backup_dir", lambda: tmp_path / "backup")
+        from cd_remap import remap
+        backup_fn = lambda: tmp_path / "backup"
+        monkeypatch.setattr(paz_patcher, "_backup_dir", backup_fn)
+        monkeypatch.setattr(remap, "_backup_dir", backup_fn)
         game_dir, _ = self._setup_game_dir(tmp_path)
         xml = extract_xml(game_dir)
         assert b"buttonA" in xml
@@ -192,7 +195,10 @@ class TestPazPatchIntegration:
         """Patch -> undo -> extract shows vanilla content."""
         from cd_remap.remap import extract_xml, _apply_patched_xml, apply_swaps, remove_remap
         from cd_remap.vendor import paz_patcher
-        monkeypatch.setattr(paz_patcher, "_backup_dir", lambda: tmp_path / "backup")
+        from cd_remap import remap
+        backup_fn = lambda: tmp_path / "backup"
+        monkeypatch.setattr(paz_patcher, "_backup_dir", backup_fn)
+        monkeypatch.setattr(remap, "_backup_dir", backup_fn)
         game_dir, original_xml = self._setup_game_dir(tmp_path)
         xml = extract_xml(game_dir)
         patched = apply_swaps(xml, {"buttonA": "buttonB", "buttonB": "buttonA"})
