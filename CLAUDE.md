@@ -30,16 +30,22 @@ Action-based controller remapper for Crimson Desert (no in-game remapping exists
 
 Proprietary (Pearl Abyss). No official mod support.
 
-**How remapping works:** Extract `inputmap_common.xml` from PAZ 0012 (ChaCha20 encrypted + LZ4 compressed, 220KB decompressed), swap `GamePad Key=` values per context (InputGroup LayerName), repack (LZ4 compress → ChaCha20 encrypt → write back to PAZ 0012), update PAMT index and PAPGT hash registry.
+**Two-layer input system:** The engine uses two XML files for gamepad bindings:
+- `inputmap_common.xml` (4,813 lines, 1,254 GamePad entries) — baseline bindings for all contexts (menus, HUD, etc.)
+- `inputmap.xml` (1,278 lines, 232 GamePad entries) — player customization layer with `CustomizationGroup` definitions that override combat/character action bindings
 
-**Why not overlays:** The overlay VFS (`0036/`) works for `.pastage` files but NOT for `inputmap_common.xml` — the game either loads input maps before overlay init, or expects XML to be encrypted (overlays are never encrypted). In-place PAZ patching bypasses this.
+Both files live in PAZ folder 0012 (different `.paz` files: common in 2.paz, override in 0.paz). Both must be patched for combat remapping to work.
+
+**How remapping works:** Extract both XMLs from PAZ 0012 (ChaCha20 encrypted + LZ4 compressed), swap `GamePad Key=` values per context (InputGroup LayerName), repack (LZ4 compress → ChaCha20 encrypt → write back to PAZ 0012), update PAMT index and PAPGT hash registry. Multi-file patching in a single operation.
+
+**Why not overlays:** The overlay VFS (`0036/`) works for `.pastage` files but NOT for input XMLs — the game either loads input maps before overlay init, or expects XML to be encrypted (overlays are never encrypted). In-place PAZ patching bypasses this.
 
 **Vendored CDUMM modules** (`tools/cd_remap/vendor/`): PAZ parsing, decryption, repacking, PAMT patching, PAPGT rebuilding. From CDUMM v2.2.0.
 
 **Key file details:**
-- `inputmap_common.xml`: 4,813 lines, 928 Input blocks, 1,254 GamePad entries
-- 88 InputGroups with LayerName attributes (engine context system)
-- Horse and Combat share UIHud_4 layer
+- `inputmap_common.xml`: baseline — 88 InputGroups, covers all layers
+- `inputmap.xml`: override — 6 InputGroups (Camera, ActionKeyByCode, Action, CharacterMove, Camera), defines CustomizationGroups for Action_Basic and Action_Battle
+- Horse and Combat share UIHud_4 layer in inputmap_common
 - PAZ folder `0012` contains all UI XML + textures
 
 ---
