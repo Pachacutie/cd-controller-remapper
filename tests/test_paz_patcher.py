@@ -250,7 +250,8 @@ class TestRemovePazPatch:
         assert "message" in result
         assert result["ok"] is True
 
-    def test_remove_without_backup_raises(self, tmp_path, monkeypatch):
+    def test_remove_without_backup_returns_error(self, tmp_path, monkeypatch):
         game_dir, _paz, _pamt, _papgt = self._setup(tmp_path, monkeypatch)
-        with pytest.raises((FileNotFoundError, ValueError)):
-            remove_paz_patch(game_dir)
+        result = remove_paz_patch(game_dir)
+        assert not result["ok"]
+        assert "No backup" in result["message"]

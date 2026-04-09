@@ -159,16 +159,13 @@ def remove_paz_patch(game_dir: Path) -> dict:
         game_dir: Crimson Desert install root
 
     Returns:
-        {"ok": True, "message": "Vanilla PAZ restored."}
-
-    Raises:
-        FileNotFoundError: if no backup exists
+        {"ok": True/False, "message": ...}
     """
     game_dir = Path(game_dir)
     backup = _backup_dir()
     backup_paz = backup / PAZ_FOLDER / "0.paz"
     if not backup_paz.exists():
-        raise FileNotFoundError(f"No backup found at {backup}. Nothing to restore.")
+        return {"ok": False, "message": "No backup found. Nothing to restore."}
 
     for rel in (f"{PAZ_FOLDER}/0.paz", f"{PAZ_FOLDER}/0.pamt", "meta/0.papgt"):
         shutil.copy2(backup / rel, game_dir / rel)

@@ -5,7 +5,7 @@ from pathlib import Path
 
 from .vendor.paz_parse import parse_pamt
 from .vendor.paz_crypto import decrypt, lz4_decompress
-from .vendor.paz_patcher import apply_paz_patch, remove_paz_patch
+from .vendor.paz_patcher import apply_paz_patch, remove_paz_patch, _backup_dir
 
 TARGET_FILE = "ui/inputmap_common.xml"
 PAZ_FOLDER = "0012"
@@ -208,12 +208,37 @@ def apply_remap(
     return result
 
 
+def _extract_vanilla_xml(game_dir: Path) -> bytes:
+    """Extract vanilla XML — from backup if PAZ was already patched, else from live PAZ."""
+    backup_pamt = _backup_dir() / PAZ_FOLDER / "0.pamt"
+    backup_paz_dir = _backup_dir() / PAZ_FOLDER
+    if backup_pamt.exists():
+        return _extract_xml_from(backup_paz_dir)
+    return extract_xml(game_dir)
+
+
+def _extract_xml_from(paz_dir: Path) -> bytes:
+    """Extract inputmap_common.xml from a specific PAZ directory."""
+    entries = parse_pamt(str(paz_dir / "0.pamt"), str(paz_dir))
+    entry = next((e for e in entries if e.path == TARGET_FILE), None)
+    if entry is None:
+        raise FileNotFoundError(f"{TARGET_FILE} not found in {paz_dir}")
+    with open(entry.paz_file, "rb") as f:
+        f.seek(entry.offset)
+        raw = f.read(entry.comp_size)
+    if entry.encrypted:
+        raw = decrypt(raw, entry.path)
+    if entry.compressed:
+        raw = lz4_decompress(raw, entry.orig_size)
+    return raw
+
+
 def _apply_patched_xml(
     patched_xml: bytes,
     game_dir: Path = DEFAULT_GAME_DIR,
 ) -> dict:
     """Patch PAZ with pre-patched XML bytes. Used by GUI for context-aware apply."""
-    original_xml = extract_xml(game_dir)
+    original_xml = _extract_vanilla_xml(game_dir)
     affected = sum(1 for a, b in zip(original_xml.split(b"\n"), patched_xml.split(b"\n")) if a != b)
 
     result = apply_paz_patch(patched_xml, game_dir)
