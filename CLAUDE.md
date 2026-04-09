@@ -22,8 +22,8 @@ Action-based controller remapper for Crimson Desert (no in-game remapping exists
 - PyInstaller exe (11MB, --windowed, pure-Python ChaCha20 — no cryptography C extension)
 - In-place PAZ 0012 patching (ChaCha20 + LZ4, with PAMT/PAPGT integrity chain)
 - Backup/restore for undo (%APPDATA%/cd_remap/backup/)
-- 98 tests (96 pass + 2 skipped integration)
-- Known UX issue: GUI freezes during PAZ writes (~912MB). No progress indicator yet.
+- Progress bar with worker threads for PAZ I/O (no GUI freeze during Apply/Undo)
+- 111 tests (109 pass + 2 skipped integration)
 
 ---
 
