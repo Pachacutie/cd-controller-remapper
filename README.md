@@ -9,7 +9,7 @@ Instead of cryptic button swaps, you see actual game actions (Sprint, Dodge, Jum
 - **Action-based remapping** — see game actions, not raw button IDs
 - **Three context tabs** — Combat (16 actions), Menus (8), Horse (7)
 - **Auto-swap** — reassigning an action automatically moves the displaced action
-- **Interactive controller diagram** — click buttons or use your gamepad
+- **Xbox controller diagram** — real controller image with interactive hotspot overlays
 - **Built-in presets** — Soulslike, Southpaw, Trigger Swap
 - **Custom profiles** — save and load your own layouts
 - **Progress bar** — real-time progress during Apply/Undo (no more GUI freeze)
@@ -87,7 +87,7 @@ Undo restores all files from backup.
 
 ```bash
 pip install pytest
-python -m pytest tests/ -v    # 111 tests
+python -m pytest tests/ -v    # 114 tests
 ```
 
 ## License
