@@ -21,6 +21,7 @@ PyInstaller.__main__.run([
     "--paths", str(ROOT / "tools"),
     "--hidden-import", "dearpygui",
     "--collect-all", "dearpygui",
+    "--collect-all", "lz4",
     "--hidden-import", "XInput",
     "--hidden-import", "cd_remap",
     "--hidden-import", "cd_remap.gui",
