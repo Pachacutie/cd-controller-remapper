@@ -14,6 +14,7 @@ from dataclasses import dataclass
 import lz4.block
 
 from .hashlittle import hashlittle
+from .paz_crypto import encrypt as chacha_encrypt
 
 logger = logging.getLogger(__name__)
 
@@ -221,8 +222,12 @@ def build_overlay(
 
         elif comp_type == 2:
             compressed = lz4.block.compress(content, store_size=False)
-            payload = compressed
-            comp_size = len(compressed)
+            # XML files must be encrypted (game expects ChaCha20 on .xml)
+            if entry_path.lower().endswith('.xml'):
+                payload = chacha_encrypt(compressed, entry_path)
+            else:
+                payload = compressed
+            comp_size = len(payload)
             decomp_size = len(content)
             flags = 2
 
