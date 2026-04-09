@@ -351,3 +351,39 @@ class TestChunkedIO:
         f = tmp_path / "empty.bin"
         _chunked_write(f, bytearray(), None, "test")
         assert f.read_bytes() == b""
+
+
+# ── TestProgressCallback ─────────────────────────────────────────────
+
+class TestProgressCallback:
+    def _setup(self, tmp_path, monkeypatch, plaintext=PLAINTEXT):
+        paz_bytes, pamt_bytes, papgt_bytes, _info = build_test_paz_pamt_papgt(
+            plaintext, TARGET_FILE, PAZ_FOLDER
+        )
+        game_dir = _write_game_dir(tmp_path / "game", paz_bytes, pamt_bytes, papgt_bytes)
+        backup = tmp_path / "backup"
+        monkeypatch.setattr("cd_remap.vendor.paz_patcher._backup_dir", lambda: backup)
+        return game_dir
+
+    def test_apply_calls_progress_cb(self, tmp_path, monkeypatch):
+        game_dir = self._setup(tmp_path, monkeypatch)
+        calls = []
+        apply_paz_patch([(TARGET_FILE, MODIFIED)], game_dir,
+                        progress_cb=lambda p, d, t: calls.append((p, d, t)))
+        phases = {c[0] for c in calls}
+        assert any("Reading" in p for p in phases)
+        assert any("Writing" in p for p in phases)
+
+    def test_apply_without_progress_cb_still_works(self, tmp_path, monkeypatch):
+        game_dir = self._setup(tmp_path, monkeypatch)
+        result = apply_paz_patch([(TARGET_FILE, MODIFIED)], game_dir)
+        assert result == {"ok": True}
+
+    def test_remove_calls_progress_cb(self, tmp_path, monkeypatch):
+        game_dir = self._setup(tmp_path, monkeypatch)
+        apply_paz_patch([(TARGET_FILE, MODIFIED)], game_dir)
+        calls = []
+        remove_paz_patch(game_dir,
+                         progress_cb=lambda p, d, t: calls.append((p, d, t)))
+        phases = {c[0] for c in calls}
+        assert any("Restoring" in p for p in phases)

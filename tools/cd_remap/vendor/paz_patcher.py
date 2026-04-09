@@ -145,7 +145,7 @@ def _apply_pamt_entry_update(
 
 # ── Apply / Remove ───────────────────────────────────────────────────
 
-def apply_paz_patch(patches: list[tuple[str, bytes]], game_dir: Path) -> dict:
+def apply_paz_patch(patches: list[tuple[str, bytes]], game_dir: Path, *, progress_cb=None) -> dict:
     """Write patched XMLs back into PAZ files and update PAMT + PAPGT.
 
     Args:
@@ -185,7 +185,8 @@ def apply_paz_patch(patches: list[tuple[str, bytes]], game_dir: Path) -> dict:
             xml_bytes, entry, allow_size_change=True
         )
 
-        buf = bytearray(paz_path.read_bytes())
+        paz_name = f"{entry.paz_index}.paz"
+        buf = _chunked_read(paz_path, progress_cb, f"Reading {paz_name}")
 
         if actual_comp <= entry.comp_size:
             buf[entry.offset: entry.offset + len(payload)] = payload
@@ -196,7 +197,7 @@ def apply_paz_patch(patches: list[tuple[str, bytes]], game_dir: Path) -> dict:
             buf += payload
             new_paz_size = len(buf)
 
-        paz_path.write_bytes(buf)
+        _chunked_write(paz_path, buf, progress_cb, f"Writing {paz_name}")
 
         # Update PAMT file record
         _apply_pamt_entry_update(
@@ -213,6 +214,9 @@ def apply_paz_patch(patches: list[tuple[str, bytes]], game_dir: Path) -> dict:
         if new_paz_size is not None:
             struct.pack_into("<I", pamt_bytes, size_off, new_paz_size)
 
+    if progress_cb:
+        progress_cb("Updating indexes", 0, 1)
+
     # Recompute PAMT outer hash
     outer_hash = compute_pamt_hash(bytes(pamt_bytes))
     struct.pack_into("<I", pamt_bytes, 0, outer_hash)
@@ -227,7 +231,7 @@ def apply_paz_patch(patches: list[tuple[str, bytes]], game_dir: Path) -> dict:
     return {"ok": True}
 
 
-def remove_paz_patch(game_dir: Path) -> dict:
+def remove_paz_patch(game_dir: Path, *, progress_cb=None) -> dict:
     """Restore vanilla PAZ/PAMT/PAPGT from backup.
 
     Args:
@@ -246,11 +250,11 @@ def remove_paz_patch(game_dir: Path) -> dict:
     for rel in (f"{PAZ_FOLDER}/0.pamt", "meta/0.papgt"):
         src = backup / rel
         if src.exists():
-            shutil.copy2(src, game_dir / rel)
+            _chunked_copy(src, game_dir / rel, progress_cb, f"Restoring {Path(rel).name}")
 
     # Restore whichever PAZ files were backed up
     paz_backup_dir = backup / PAZ_FOLDER
     for f in paz_backup_dir.glob("*.paz"):
-        shutil.copy2(f, game_dir / PAZ_FOLDER / f.name)
+        _chunked_copy(f, game_dir / PAZ_FOLDER / f.name, progress_cb, f"Restoring {f.name}")
 
     return {"ok": True, "message": "Vanilla PAZ restored."}
