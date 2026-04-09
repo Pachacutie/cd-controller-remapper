@@ -12,7 +12,7 @@ Instead of cryptic button swaps, you see actual game actions (Sprint, Dodge, Jum
 - **Interactive controller diagram** — click buttons or use your gamepad
 - **Built-in presets** — Soulslike, Southpaw, Trigger Swap
 - **Custom profiles** — save and load your own layouts
-- **Safe** — patches go to the `0036/` overlay directory; vanilla files are never touched
+- **Safe** — backs up vanilla files before patching; undo restores originals
 - **Undo** — one click restores all original bindings
 
 ## Quick Start
@@ -72,20 +72,21 @@ python build/build_exe.py
 
 ## How It Works
 
-Crimson Desert stores gamepad bindings in `inputmap_common.xml` inside PAZ archive `0008`. The tool:
+Crimson Desert stores gamepad bindings in `inputmap_common.xml` inside PAZ archive `0012`. The tool:
 
-1. Extracts the XML from the encrypted PAZ archive
-2. Swaps `GamePad Key=` values based on your assignments
-3. Writes the patched XML to the `0036/` mod overlay directory
-4. The game loads `0036/` over the originals — vanilla is never modified
+1. Backs up the vanilla PAZ archive, PAMT index, and PAPGT hash registry
+2. Extracts and decrypts the XML (ChaCha20 + LZ4)
+3. Swaps `GamePad Key=` values based on your assignments
+4. Re-compresses, re-encrypts, and patches the XML back into the PAZ archive
+5. Updates the PAMT index and PAPGT integrity hashes
 
-Undo deletes the overlay and restores the original PAPGT hash registry from backup.
+Undo restores all three files from backup.
 
 ## Tests
 
 ```bash
 pip install pytest
-python -m pytest tests/ -v    # 72 tests
+python -m pytest tests/ -v    # 97 tests
 ```
 
 ## License
