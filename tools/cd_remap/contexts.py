@@ -6,7 +6,7 @@ VALID_CONTEXTS = frozenset(["all", "gameplay", "menus"])
 CONTEXT_LAYERS = {
     "gameplay": {
         "UIHud_1", "UIHud_2", "UIHud_3", "UIHud_4",
-        "UIHud_HighPriority", "Action", "QuickSlot",
+        "UIHud_HighPriority", "Action", "ActionKeyByCode", "QuickSlot",
         "QTE", "MiniGameWithAction", "GimmickInput",
     },
     "menus": {
