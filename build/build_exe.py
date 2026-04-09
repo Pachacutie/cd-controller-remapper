@@ -32,4 +32,10 @@ PyInstaller.__main__.run([
     "--hidden-import", "cd_remap.controller_draw",
     "--hidden-import", "cd_remap.remap",
     "--hidden-import", "cd_remap.vendor",
+    "--hidden-import", "cd_remap.vendor.paz_parse",
+    "--hidden-import", "cd_remap.vendor.paz_crypto",
+    "--hidden-import", "cd_remap.vendor.paz_repack",
+    "--hidden-import", "cd_remap.vendor.paz_patcher",
+    "--hidden-import", "cd_remap.vendor.hashlittle",
+    "--hidden-import", "cd_remap.vendor.papgt_manager",
 ])
