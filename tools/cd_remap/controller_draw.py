@@ -24,42 +24,51 @@ COLOR_BODY_BORDER = (90, 90, 100, 255)
 
 # Button positions relative to drawlist origin (0,0 = top-left)
 # Drawlist size: 500 x 358
+# Image drawn at offset (40,30) size (420,300) — see IMG_OFFSET / IMG_SIZE
+# Coordinates calibrated from user clicks on the rendered image
 BUTTON_POSITIONS = {
     # Face buttons — right cluster
-    "buttonA": {"x": 323, "y": 192, "r": 16, "shape": "circle", "label": "A"},
-    "buttonB": {"x": 353, "y": 162, "r": 16, "shape": "circle", "label": "B"},
-    "buttonX": {"x": 293, "y": 162, "r": 16, "shape": "circle", "label": "X"},
-    "buttonY": {"x": 323, "y": 132, "r": 16, "shape": "circle", "label": "Y"},
+    "buttonA": {"x": 370, "y": 131, "r": 16, "shape": "circle", "label": "A"},
+    "buttonB": {"x": 402, "y": 101, "r": 16, "shape": "circle", "label": "B"},
+    "buttonX": {"x": 341, "y": 99, "r": 16, "shape": "circle", "label": "X"},
+    "buttonY": {"x": 373, "y": 70, "r": 16, "shape": "circle", "label": "Y"},
     # Shoulder buttons
-    "buttonLB": {"x": 82, "y": 48, "w": 56, "h": 22, "shape": "rect", "label": "LB"},
-    "buttonRB": {"x": 312, "y": 48, "w": 56, "h": 22, "shape": "rect", "label": "RB"},
-    # Triggers
-    "buttonLT": {"x": 82, "y": 18, "w": 56, "h": 22, "shape": "rect", "label": "LT"},
-    "buttonRT": {"x": 312, "y": 18, "w": 56, "h": 22, "shape": "rect", "label": "RT"},
-    # Stick clicks (small circles inside stick outlines)
-    "buttonLS": {"x": 163, "y": 148, "r": 12, "shape": "circle", "label": "LS"},
-    "buttonRS": {"x": 277, "y": 218, "r": 12, "shape": "circle", "label": "RS"},
+    "buttonLB": {"x": 111, "y": 25, "w": 56, "h": 22, "shape": "rect", "label": "LB"},
+    "buttonRB": {"x": 351, "y": 29, "w": 56, "h": 22, "shape": "rect", "label": "RB"},
+    # Triggers (above shoulders — partially hidden, use same x as LB/RB)
+    "buttonLT": {"x": 111, "y": 3, "w": 56, "h": 22, "shape": "rect", "label": "LT"},
+    "buttonRT": {"x": 351, "y": 7, "w": 56, "h": 22, "shape": "rect", "label": "RT"},
+    # Stick clicks
+    "buttonLS": {"x": 131, "y": 96, "r": 12, "shape": "circle", "label": "LS"},
+    "buttonRS": {"x": 314, "y": 168, "r": 12, "shape": "circle", "label": "RS"},
     # Analog sticks (outer rings — visual only, not clickable)
-    "leftstick": {"x": 163, "y": 148, "r": 30, "shape": "ring", "label": "L"},
-    "rightstick": {"x": 277, "y": 218, "r": 30, "shape": "ring", "label": "R"},
+    "leftstick": {"x": 131, "y": 96, "r": 30, "shape": "ring", "label": "L"},
+    "rightstick": {"x": 314, "y": 168, "r": 30, "shape": "ring", "label": "R"},
     # D-pad
-    "padU": {"x": 147, "y": 194, "w": 20, "h": 20, "shape": "rect", "label": "^"},
-    "padD": {"x": 147, "y": 234, "w": 20, "h": 20, "shape": "rect", "label": "v"},
-    "padL": {"x": 127, "y": 214, "w": 20, "h": 20, "shape": "rect", "label": "<"},
-    "padR": {"x": 167, "y": 214, "w": 20, "h": 20, "shape": "rect", "label": ">"},
+    "padU": {"x": 177, "y": 129, "w": 20, "h": 20, "shape": "rect", "label": "^"},
+    "padD": {"x": 180, "y": 182, "w": 20, "h": 20, "shape": "rect", "label": "v"},
+    "padL": {"x": 155, "y": 156, "w": 20, "h": 20, "shape": "rect", "label": "<"},
+    "padR": {"x": 207, "y": 157, "w": 20, "h": 20, "shape": "rect", "label": ">"},
     # Meta
-    "select": {"x": 188, "y": 130, "w": 28, "h": 18, "shape": "rect", "label": "Sel"},
-    "start": {"x": 234, "y": 130, "w": 28, "h": 18, "shape": "rect", "label": "Sta"},
+    "select": {"x": 195, "y": 94, "w": 28, "h": 18, "shape": "rect", "label": "Sel"},
+    "start": {"x": 282, "y": 94, "w": 28, "h": 18, "shape": "rect", "label": "Sta"},
 }
 
 # Buttons that are clickable (excludes analog stick rings which are visual)
 CLICKABLE_BUTTONS = [b for b in BUTTON_POSITIONS if BUTTON_POSITIONS[b]["shape"] != "ring"]
 
 
+# Image drawn with margins so triggers fit and labels have room
+IMG_OFFSET = (40, 30)  # (x, y) top-left margin
+IMG_SIZE = (420, 300)   # display size within the 500x358 drawlist
+
+
 def draw_controller_image(drawlist: int | str, texture_tag: str):
     """Draw the controller image as the drawlist background."""
+    x0, y0 = IMG_OFFSET
     dpg.draw_image(
-        texture_tag, (0, 0), (500, 358),
+        texture_tag,
+        (x0, y0), (x0 + IMG_SIZE[0], y0 + IMG_SIZE[1]),
         parent=drawlist,
     )
 
@@ -134,9 +143,9 @@ def get_pair_color(pair_index: int) -> tuple:
 
 # Label offsets relative to button center (dx, dy)
 _LABEL_OFFSETS = {
-    "buttonA": (20, 4), "buttonB": (20, 4), "buttonX": (-50, 4), "buttonY": (20, -2),
+    "buttonA": (20, 4), "buttonB": (20, 4), "buttonX": (-56, 4), "buttonY": (20, -4),
     "buttonLB": (0, 24), "buttonRB": (0, 24),
-    "buttonLT": (0, 24), "buttonRT": (0, 24),
+    "buttonLT": (0, -14), "buttonRT": (0, -14),
     "buttonLS": (-16, 34), "buttonRS": (-16, 34),
     "select": (-4, 22), "start": (-4, 22),
 }
