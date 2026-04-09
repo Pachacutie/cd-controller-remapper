@@ -257,6 +257,8 @@ def _apply_patched_xmls(
     patched_common: bytes,
     patched_override: bytes,
     game_dir: Path = DEFAULT_GAME_DIR,
+    *,
+    progress_cb=None,
 ) -> dict:
     """Patch PAZ with pre-patched XML bytes for both input maps. Used by GUI."""
     orig_common, orig_override = _extract_vanilla_xmls(game_dir)
@@ -268,14 +270,15 @@ def _apply_patched_xmls(
     result = apply_paz_patch(
         [(TARGET_FILE, patched_common), (TARGET_FILE_OVERRIDE, patched_override)],
         game_dir,
+        progress_cb=progress_cb,
     )
     result["affected"] = affected
     return result
 
 
-def remove_remap(game_dir: Path = DEFAULT_GAME_DIR) -> dict:
+def remove_remap(game_dir: Path = DEFAULT_GAME_DIR, *, progress_cb=None) -> dict:
     """Restore vanilla PAZ/PAMT/PAPGT from backup."""
-    return remove_paz_patch(game_dir)
+    return remove_paz_patch(game_dir, progress_cb=progress_cb)
 
 
 def show_bindings(game_dir: Path = DEFAULT_GAME_DIR) -> list[dict]:

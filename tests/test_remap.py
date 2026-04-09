@@ -255,3 +255,67 @@ class TestPazPatchIntegration:
         common2, override2 = extract_both_xmls(game_dir)
         assert b"buttonB" in common2 and b"buttonA" not in common2
         assert b"buttonB" in override2 and b"buttonA" not in override2
+
+
+def test_apply_patched_xmls_passes_progress_cb(tmp_path, monkeypatch):
+    """Verify progress_cb is threaded through to apply_paz_patch."""
+    from cd_remap.remap import _apply_patched_xmls
+    from fixtures import build_multi_file_paz
+
+    file_a = "ui/inputmap_common.xml"
+    file_b = "ui/inputmap.xml"
+    content_a = b'<Input><GamePad Key="buttonA"/></Input>\n' * 15
+    content_b = b'<Input><GamePad Key="buttonX"/></Input>\n' * 15
+
+    paz_bytes, pamt_bytes, papgt_bytes = build_multi_file_paz(
+        [(file_a, content_a), (file_b, content_b)]
+    )
+    game_dir = tmp_path / "game"
+    paz_dir = game_dir / "0012"
+    paz_dir.mkdir(parents=True)
+    (paz_dir / "0.paz").write_bytes(paz_bytes)
+    (paz_dir / "0.pamt").write_bytes(pamt_bytes)
+    (game_dir / "meta").mkdir()
+    (game_dir / "meta" / "0.papgt").write_bytes(papgt_bytes)
+
+    backup = tmp_path / "backup"
+    monkeypatch.setattr("cd_remap.vendor.paz_patcher._backup_dir", lambda: backup)
+    monkeypatch.setattr("cd_remap.remap._backup_dir", lambda: backup)
+
+    calls = []
+    modified_a = content_a.replace(b"buttonA", b"buttonB")
+    modified_b = content_b.replace(b"buttonX", b"buttonY")
+    result = _apply_patched_xmls(modified_a, modified_b, game_dir,
+                                  progress_cb=lambda p, d, t: calls.append(p))
+    assert result["ok"]
+    assert len(calls) > 0
+
+
+def test_remove_remap_passes_progress_cb(tmp_path, monkeypatch):
+    """Verify progress_cb is threaded through to remove_paz_patch."""
+    from cd_remap.remap import remove_remap
+    from cd_remap.vendor.paz_patcher import apply_paz_patch
+    from fixtures import build_test_paz_pamt_papgt
+
+    plaintext = b'<Input><GamePad Key="buttonA"/></Input>\n' * 15
+    paz_bytes, pamt_bytes, papgt_bytes, _ = build_test_paz_pamt_papgt(
+        plaintext, "ui/inputmap_common.xml", "0012"
+    )
+    game_dir = tmp_path / "game"
+    paz_dir = game_dir / "0012"
+    paz_dir.mkdir(parents=True)
+    (paz_dir / "0.paz").write_bytes(paz_bytes)
+    (paz_dir / "0.pamt").write_bytes(pamt_bytes)
+    (game_dir / "meta").mkdir()
+    (game_dir / "meta" / "0.papgt").write_bytes(papgt_bytes)
+
+    backup = tmp_path / "backup"
+    monkeypatch.setattr("cd_remap.vendor.paz_patcher._backup_dir", lambda: backup)
+
+    modified = plaintext.replace(b"buttonA", b"buttonB")
+    apply_paz_patch([("ui/inputmap_common.xml", modified)], game_dir)
+
+    calls = []
+    result = remove_remap(game_dir, progress_cb=lambda p, d, t: calls.append(p))
+    assert result["ok"]
+    assert len(calls) > 0
