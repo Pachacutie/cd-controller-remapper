@@ -5,9 +5,9 @@ from pathlib import Path
 from . import VERSION
 from .gamepad import GamepadPoller
 from .remap import (
-    _apply_patched_xml,
+    _apply_patched_xmls,
     apply_swaps_contextual,
-    extract_xml,
+    extract_both_xmls,
     remove_remap,
 )
 from .actions import (
@@ -338,9 +338,10 @@ class RemapGUI:
                 self._set_status("No changes to apply.")
                 return
 
-            xml = extract_xml(self.game_dir)
-            patched = apply_swaps_contextual(xml, unique_swaps)
-            result = _apply_patched_xml(patched, self.game_dir)
+            common, override = extract_both_xmls(self.game_dir)
+            patched_common = apply_swaps_contextual(common, unique_swaps)
+            patched_override = apply_swaps_contextual(override, unique_swaps)
+            result = _apply_patched_xmls(patched_common, patched_override, self.game_dir)
             if result["ok"]:
                 self._set_status(f"Applied! {result['affected']} bindings remapped.")
             else:

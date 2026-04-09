@@ -1,15 +1,15 @@
-"""Core remap logic -- extract, swap, rebuild overlay."""
+"""Core remap logic -- extract, swap, apply via in-place PAZ patching."""
 import json
 import re
-import shutil
 from pathlib import Path
 
 from .vendor.paz_parse import parse_pamt
-from .vendor.paz_crypto import decrypt, lz4_decompress, encrypt, lz4_compress
-from .vendor.overlay_builder import build_overlay
-from .vendor.papgt_manager import PapgtManager
+from .vendor.paz_crypto import decrypt, lz4_decompress
+from .vendor.paz_patcher import apply_paz_patch, remove_paz_patch, _backup_dir
 
+# Both files must be patched — inputmap.xml overrides combat bindings
 TARGET_FILE = "ui/inputmap_common.xml"
+TARGET_FILE_OVERRIDE = "ui/inputmap.xml"
 PAZ_FOLDER = "0012"
 
 VALID_BUTTONS = frozenset([
@@ -43,7 +43,6 @@ def _detect_game_dir() -> Path:
 
 
 DEFAULT_GAME_DIR = _detect_game_dir()
-BACKUP_DIR = DEFAULT_GAME_DIR.parent.parent.parent / "cd_remap_backup"
 
 
 def validate_swaps(swaps: dict[str, str]) -> list[str]:
@@ -164,6 +163,21 @@ def count_affected(xml_bytes: bytes, swaps: dict[str, str]) -> int:
     return count
 
 
+def _extract_entry(entries: list, target: str) -> bytes:
+    """Extract and decrypt a single file from parsed PAMT entries."""
+    entry = next((e for e in entries if e.path == target), None)
+    if entry is None:
+        raise FileNotFoundError(f"{target} not found in PAZ folder {PAZ_FOLDER}")
+    with open(entry.paz_file, "rb") as f:
+        f.seek(entry.offset)
+        raw = f.read(entry.comp_size)
+    if entry.encrypted:
+        raw = decrypt(raw, entry.path)
+    if entry.compressed:
+        raw = lz4_decompress(raw, entry.orig_size)
+    return raw
+
+
 def extract_xml(game_dir: Path = DEFAULT_GAME_DIR) -> bytes:
     """Extract and decrypt ui/inputmap_common.xml from PAZ 0012."""
     paz_dir = game_dir / PAZ_FOLDER
@@ -173,20 +187,21 @@ def extract_xml(game_dir: Path = DEFAULT_GAME_DIR) -> bytes:
             f"Make sure Crimson Desert is installed, or use --game-dir to specify the path."
         )
     entries = parse_pamt(str(paz_dir / "0.pamt"), str(paz_dir))
-    entry = next((e for e in entries if e.path == TARGET_FILE), None)
-    if entry is None:
-        raise FileNotFoundError(f"{TARGET_FILE} not found in PAZ folder {PAZ_FOLDER}")
+    return _extract_entry(entries, TARGET_FILE)
 
-    with open(entry.paz_file, "rb") as f:
-        f.seek(entry.offset)
-        raw = f.read(entry.comp_size)
 
-    if entry.encrypted:
-        raw = decrypt(raw, entry.path)
-    if entry.compressed:
-        raw = lz4_decompress(raw, entry.orig_size)
-
-    return raw
+def extract_both_xmls(game_dir: Path = DEFAULT_GAME_DIR) -> tuple[bytes, bytes]:
+    """Extract both inputmap_common.xml and inputmap.xml from PAZ 0012."""
+    paz_dir = game_dir / PAZ_FOLDER
+    if not paz_dir.exists():
+        raise FileNotFoundError(
+            f"Game directory not found: {game_dir}\n"
+            f"Make sure Crimson Desert is installed, or use --game-dir to specify the path."
+        )
+    entries = parse_pamt(str(paz_dir / "0.pamt"), str(paz_dir))
+    common = _extract_entry(entries, TARGET_FILE)
+    override = _extract_entry(entries, TARGET_FILE_OVERRIDE)
+    return common, override
 
 
 def apply_remap(
@@ -194,126 +209,73 @@ def apply_remap(
     game_dir: Path = DEFAULT_GAME_DIR,
     dry_run: bool = False,
 ) -> dict:
-    """Extract XML, apply swaps, build overlay. Returns summary dict."""
+    """Extract XMLs, apply swaps, patch PAZ in-place. Returns summary dict."""
     errors = validate_swaps(swaps)
     if errors:
         return {"ok": False, "errors": errors}
 
-    xml = extract_xml(game_dir)
-    affected = count_affected(xml, swaps)
-    patched = apply_swaps(xml, swaps)
+    common, override = extract_both_xmls(game_dir)
+    affected = count_affected(common, swaps) + count_affected(override, swaps)
+    patched_common = apply_swaps(common, swaps)
+    patched_override = apply_swaps(override, swaps)
 
     if dry_run:
         return {"ok": True, "affected": affected, "dry_run": True}
 
-    papgt_path = game_dir / "meta" / "0.papgt"
-    backup_papgt = BACKUP_DIR / "meta" / "0.papgt"
-    if not backup_papgt.exists():
-        backup_papgt.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(papgt_path, backup_papgt)
-
-    # Pass raw bytes — build_overlay handles compression (no pre-encrypt for overlays)
-    overlay_input = [(
-        patched,
-        {
-            "entry_path": TARGET_FILE,
-            "compression_type": 2,
-            "pamt_dir": PAZ_FOLDER,
-        },
-    )]
-
-    overlay_dir = game_dir / "0036"
-    existing_entries = _read_existing_overlay(overlay_dir, game_dir) if overlay_dir.exists() else []
-    existing_entries = [e for e in existing_entries if e[1].get("entry_path") != TARGET_FILE]
-    all_entries = existing_entries + overlay_input
-
-    paz_bytes, pamt_bytes = build_overlay(all_entries, game_dir=str(game_dir))
-
-    overlay_dir.mkdir(exist_ok=True)
-    (overlay_dir / "0.paz").write_bytes(paz_bytes)
-    (overlay_dir / "0.pamt").write_bytes(pamt_bytes)
-
-    papgt_mgr = PapgtManager(game_dir)
-    papgt_bytes = papgt_mgr.rebuild(modified_pamts={"0036": pamt_bytes})
-    papgt_path.write_bytes(papgt_bytes)
-
-    return {"ok": True, "affected": affected, "dry_run": False}
+    result = apply_paz_patch(
+        [(TARGET_FILE, patched_common), (TARGET_FILE_OVERRIDE, patched_override)],
+        game_dir,
+    )
+    result["affected"] = affected
+    return result
 
 
-def _apply_patched_xml(
-    patched_xml: bytes,
+def _extract_vanilla_xmls(game_dir: Path) -> tuple[bytes, bytes]:
+    """Extract vanilla XMLs — from backup if complete, else live game dir."""
+    backup_paz_dir = _backup_dir() / PAZ_FOLDER
+    use_backup = (
+        (backup_paz_dir / "0.pamt").exists()
+        and all(Path(p).exists() for p in _paz_files_for_targets(backup_paz_dir))
+    )
+    if use_backup:
+        entries = parse_pamt(str(backup_paz_dir / "0.pamt"), str(backup_paz_dir))
+    else:
+        paz_dir = game_dir / PAZ_FOLDER
+        entries = parse_pamt(str(paz_dir / "0.pamt"), str(paz_dir))
+    common = _extract_entry(entries, TARGET_FILE)
+    override = _extract_entry(entries, TARGET_FILE_OVERRIDE)
+    return common, override
+
+
+def _paz_files_for_targets(paz_dir: Path) -> list[str]:
+    """Return PAZ file paths needed for both target XMLs."""
+    entries = parse_pamt(str(paz_dir / "0.pamt"), str(paz_dir))
+    return [e.paz_file for e in entries if e.path in (TARGET_FILE, TARGET_FILE_OVERRIDE)]
+
+
+def _apply_patched_xmls(
+    patched_common: bytes,
+    patched_override: bytes,
     game_dir: Path = DEFAULT_GAME_DIR,
 ) -> dict:
-    """Build overlay from pre-patched XML bytes. Used by GUI for context-aware apply."""
-    # Count affected lines BEFORE writing (extract_xml reads vanilla from 0012)
-    original_xml = extract_xml(game_dir)
-    affected = sum(1 for a, b in zip(original_xml.split(b"\n"), patched_xml.split(b"\n")) if a != b)
+    """Patch PAZ with pre-patched XML bytes for both input maps. Used by GUI."""
+    orig_common, orig_override = _extract_vanilla_xmls(game_dir)
+    affected = (
+        sum(1 for a, b in zip(orig_common.split(b"\n"), patched_common.split(b"\n")) if a != b)
+        + sum(1 for a, b in zip(orig_override.split(b"\n"), patched_override.split(b"\n")) if a != b)
+    )
 
-    papgt_path = game_dir / "meta" / "0.papgt"
-    backup_papgt = BACKUP_DIR / "meta" / "0.papgt"
-    if not backup_papgt.exists():
-        backup_papgt.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(papgt_path, backup_papgt)
-
-    # Pass raw bytes — build_overlay handles compression (no pre-encrypt for overlays)
-    overlay_input = [(
-        patched_xml,
-        {
-            "entry_path": TARGET_FILE,
-            "compression_type": 2,
-            "pamt_dir": PAZ_FOLDER,
-        },
-    )]
-
-    overlay_dir = game_dir / "0036"
-    existing_entries = _read_existing_overlay(overlay_dir, game_dir) if overlay_dir.exists() else []
-    existing_entries = [e for e in existing_entries if e[1].get("entry_path") != TARGET_FILE]
-    all_entries = existing_entries + overlay_input
-
-    paz_bytes, pamt_bytes = build_overlay(all_entries, game_dir=str(game_dir))
-
-    overlay_dir.mkdir(exist_ok=True)
-    (overlay_dir / "0.paz").write_bytes(paz_bytes)
-    (overlay_dir / "0.pamt").write_bytes(pamt_bytes)
-
-    papgt_mgr = PapgtManager(game_dir)
-    papgt_bytes = papgt_mgr.rebuild(modified_pamts={"0036": pamt_bytes})
-    papgt_path.write_bytes(papgt_bytes)
-
-    return {"ok": True, "affected": affected}
+    result = apply_paz_patch(
+        [(TARGET_FILE, patched_common), (TARGET_FILE_OVERRIDE, patched_override)],
+        game_dir,
+    )
+    result["affected"] = affected
+    return result
 
 
 def remove_remap(game_dir: Path = DEFAULT_GAME_DIR) -> dict:
-    """Remove the remap entry from the overlay. Preserve other mod entries."""
-    overlay_dir = game_dir / "0036"
-    if not overlay_dir.exists():
-        return {"ok": True, "message": "No overlay to remove."}
-
-    existing = _read_existing_overlay(overlay_dir, game_dir)
-    remaining = [e for e in existing if e[1].get("entry_path") != TARGET_FILE]
-
-    if not remaining:
-        shutil.rmtree(overlay_dir)
-        backup_papgt = BACKUP_DIR / "meta" / "0.papgt"
-        if backup_papgt.exists():
-            shutil.copy2(backup_papgt, game_dir / "meta" / "0.papgt")
-            return {"ok": True, "message": "Overlay removed, vanilla PAPGT restored."}
-        else:
-            # No backup — rebuild PAPGT without 0036 to avoid stale reference
-            papgt_mgr = PapgtManager(game_dir)
-            papgt_bytes = papgt_mgr.rebuild()
-            (game_dir / "meta" / "0.papgt").write_bytes(papgt_bytes)
-            return {"ok": True, "message": "Overlay removed, PAPGT rebuilt (no backup found)."}
-
-    paz_bytes, pamt_bytes = build_overlay(remaining, game_dir=str(game_dir))
-    (overlay_dir / "0.paz").write_bytes(paz_bytes)
-    (overlay_dir / "0.pamt").write_bytes(pamt_bytes)
-
-    papgt_mgr = PapgtManager(game_dir)
-    papgt_bytes = papgt_mgr.rebuild(modified_pamts={"0036": pamt_bytes})
-    (game_dir / "meta" / "0.papgt").write_bytes(papgt_bytes)
-
-    return {"ok": True, "message": "Remap removed. Other overlay entries preserved."}
+    """Restore vanilla PAZ/PAMT/PAPGT from backup."""
+    return remove_paz_patch(game_dir)
 
 
 def show_bindings(game_dir: Path = DEFAULT_GAME_DIR) -> list[dict]:
@@ -343,31 +305,3 @@ def load_config(path: str) -> dict[str, str]:
     with open(path) as f:
         data = json.load(f)
     return data.get("swaps", {})
-
-
-def _read_existing_overlay(overlay_dir: Path, game_dir: Path) -> list[tuple[bytes, dict]]:
-    """Read existing overlay entries so we can preserve them during rebuild."""
-    pamt_path = overlay_dir / "0.pamt"
-    paz_path = overlay_dir / "0.paz"
-    if not pamt_path.exists() or not paz_path.exists():
-        return []
-
-    entries = parse_pamt(str(pamt_path), str(overlay_dir))
-    result = []
-    with open(paz_path, "rb") as f:
-        for entry in entries:
-            f.seek(entry.offset)
-            data = f.read(entry.comp_size)
-            # Decompress so build_overlay can re-compress uniformly
-            # Overlay entries are NEVER encrypted (game VFS handles overlays differently)
-            if entry.compressed:
-                data = lz4_decompress(data, entry.orig_size)
-            result.append((
-                data,
-                {
-                    "entry_path": entry.path,
-                    "compression_type": entry.compression_type,
-                    "pamt_dir": PAZ_FOLDER,
-                },
-            ))
-    return result
