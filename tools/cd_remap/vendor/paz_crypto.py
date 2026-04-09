@@ -12,7 +12,6 @@ Usage:
 import os
 import struct
 
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms
 import lz4.block
 
 # ── Key derivation constants ─────────────────────────────────────────
@@ -101,12 +100,51 @@ def derive_key_iv(filename: str) -> tuple[bytes, bytes]:
     return key, iv
 
 
-# ── ChaCha20 encrypt/decrypt ────────────────────────────────────────
+# ── ChaCha20 encrypt/decrypt (pure-Python, RFC 7539) ───────────────
+
+_CHACHA_CONSTANTS = (0x61707865, 0x3320646e, 0x79622d32, 0x6b206574)
+_MASK = 0xFFFFFFFF
+
+
+def _chacha20_quarter_round(s, a, b, c, d):
+    s[a] = (s[a] + s[b]) & _MASK; s[d] ^= s[a]; s[d] = ((s[d] << 16) | (s[d] >> 16)) & _MASK
+    s[c] = (s[c] + s[d]) & _MASK; s[b] ^= s[c]; s[b] = ((s[b] << 12) | (s[b] >> 20)) & _MASK
+    s[a] = (s[a] + s[b]) & _MASK; s[d] ^= s[a]; s[d] = ((s[d] << 8) | (s[d] >> 24)) & _MASK
+    s[c] = (s[c] + s[d]) & _MASK; s[b] ^= s[c]; s[b] = ((s[b] << 7) | (s[b] >> 25)) & _MASK
+
+
+def _chacha20_block(key_words, counter, nonce_words):
+    """Generate one 64-byte keystream block."""
+    s = list(_CHACHA_CONSTANTS) + list(key_words) + [counter] + list(nonce_words)
+    w = list(s)
+    for _ in range(10):  # 20 rounds = 10 double-rounds
+        _chacha20_quarter_round(w, 0, 4, 8, 12)
+        _chacha20_quarter_round(w, 1, 5, 9, 13)
+        _chacha20_quarter_round(w, 2, 6, 10, 14)
+        _chacha20_quarter_round(w, 3, 7, 11, 15)
+        _chacha20_quarter_round(w, 0, 5, 10, 15)
+        _chacha20_quarter_round(w, 1, 6, 11, 12)
+        _chacha20_quarter_round(w, 2, 7, 8, 13)
+        _chacha20_quarter_round(w, 3, 4, 9, 14)
+    return struct.pack('<16I', *((w[i] + s[i]) & _MASK for i in range(16)))
+
 
 def chacha20(data: bytes, key: bytes, iv: bytes) -> bytes:
-    """ChaCha20 encrypt or decrypt (symmetric)."""
-    cipher = Cipher(algorithms.ChaCha20(key, iv), mode=None)
-    return cipher.encryptor().update(data)
+    """ChaCha20 encrypt or decrypt (symmetric).
+
+    Matches cryptography.hazmat ChaCha20 nonce layout:
+    iv[0:4] = initial counter (LE uint32), iv[4:16] = 12-byte nonce.
+    """
+    key_words = struct.unpack('<8I', key)
+    counter = struct.unpack('<I', iv[:4])[0]
+    nonce_words = struct.unpack('<3I', iv[4:16])
+
+    out = bytearray()
+    for i in range(0, len(data), 64):
+        block = _chacha20_block(key_words, (counter + i // 64) & _MASK, nonce_words)
+        chunk = data[i:i + 64]
+        out.extend(b ^ k for b, k in zip(chunk, block))
+    return bytes(out)
 
 
 def decrypt(data: bytes, filename: str) -> bytes:
