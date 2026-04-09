@@ -25,6 +25,57 @@ from .hashlittle import hashlittle, INTEGRITY_SEED, compute_pamt_hash
 from .papgt_manager import PapgtManager
 
 PAZ_FOLDER = "0012"
+CHUNK_SIZE = 4 * 1024 * 1024  # 4 MB
+
+
+def _chunked_read(path, progress_cb, phase):
+    """Read file into bytearray in chunks, calling progress_cb after each."""
+    path = Path(path)
+    size = path.stat().st_size
+    buf = bytearray(size)
+    with open(path, "rb") as f:
+        done = 0
+        while done < size:
+            chunk = f.readinto(memoryview(buf)[done:done + CHUNK_SIZE])
+            if not chunk:
+                break
+            done += chunk
+            if progress_cb:
+                progress_cb(phase, done, size)
+    return buf
+
+
+def _chunked_write(path, buf, progress_cb, phase):
+    """Write bytearray to file in chunks, calling progress_cb after each."""
+    path = Path(path)
+    total = len(buf)
+    with open(path, "wb") as f:
+        done = 0
+        while done < total:
+            end = min(done + CHUNK_SIZE, total)
+            f.write(buf[done:end])
+            done = end
+            if progress_cb:
+                progress_cb(phase, done, total)
+
+
+def _chunked_copy(src, dst, progress_cb, phase):
+    """Copy file in chunks with progress callback. Preserves metadata."""
+    src, dst = Path(src), Path(dst)
+    size = src.stat().st_size
+    buf = bytearray(min(CHUNK_SIZE, size)) if size else bytearray()
+    mv = memoryview(buf)
+    with open(src, "rb") as fin, open(dst, "wb") as fout:
+        done = 0
+        while done < size:
+            n = fin.readinto(mv)
+            if not n:
+                break
+            fout.write(mv[:n])
+            done += n
+            if progress_cb:
+                progress_cb(phase, done, size)
+    shutil.copystat(src, dst)
 
 
 # ── Backup ────────────────────────────────────────────────────────────
