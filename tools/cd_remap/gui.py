@@ -49,7 +49,7 @@ BUTTON_DISPLAY = {
     "select": "Select", "start": "Start",
 }
 
-COLOR_CHANGED = (0, 200, 200, 80)
+COLOR_CHANGED = (0, 200, 200, 140)
 
 
 def _last_applied_path() -> Path:

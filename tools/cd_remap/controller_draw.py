@@ -3,8 +3,8 @@ import dearpygui.dearpygui as dpg
 
 COLOR_DEFAULT = (0, 0, 0, 0)          # Transparent — image shows through
 COLOR_BORDER = (0, 0, 0, 0)           # No border on hotspots
-COLOR_HOVER = (180, 180, 180, 60)     # Subtle white glow
-COLOR_SELECTED = (255, 255, 255, 90)  # Brighter selection indicator
+COLOR_HOVER = (0, 180, 255, 140)      # Blue glow on hover
+COLOR_SELECTED = (255, 200, 0, 180)   # Yellow/gold selection indicator
 COLOR_LABEL = (180, 180, 180, 255)
 
 # Button positions relative to drawlist origin (0,0 = top-left)
