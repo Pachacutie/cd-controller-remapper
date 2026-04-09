@@ -1,26 +1,11 @@
 """Draw an interactive Xbox-style controller on a Dear PyGui drawlist."""
 import dearpygui.dearpygui as dpg
 
-# Pair accent colors — assigned to swap pairs in order
-PAIR_COLORS = [
-    (0, 200, 200, 255),    # cyan
-    (255, 165, 0, 255),    # orange
-    (200, 0, 200, 255),    # magenta
-    (100, 255, 100, 255),  # green
-    (255, 100, 100, 255),  # red
-    (100, 100, 255, 255),  # blue
-    (255, 255, 0, 255),    # yellow
-    (200, 150, 255, 255),  # lavender
-    (255, 200, 150, 255),  # peach
-]
-
 COLOR_DEFAULT = (0, 0, 0, 0)          # Transparent — image shows through
 COLOR_BORDER = (0, 0, 0, 0)           # No border on hotspots
 COLOR_HOVER = (180, 180, 180, 60)     # Subtle white glow
 COLOR_SELECTED = (255, 255, 255, 90)  # Brighter selection indicator
 COLOR_LABEL = (180, 180, 180, 255)
-COLOR_BODY = (45, 45, 50, 255)
-COLOR_BODY_BORDER = (90, 90, 100, 255)
 
 # Button positions relative to drawlist origin (0,0 = top-left)
 # Drawlist size: 500 x 358
@@ -74,7 +59,7 @@ def draw_controller_image(drawlist: int | str, texture_tag: str):
 
 
 def draw_button(drawlist: int | str, btn_id: str, color: tuple = (0, 0, 0, 0),
-                border: tuple = (0, 0, 0, 0), label_override: str | None = None) -> int | str:
+                border: tuple = (0, 0, 0, 0)) -> int | str:
     """Draw a transparent hotspot overlay for a button. Returns the item tag."""
     pos = BUTTON_POSITIONS[btn_id]
     tag = f"btn_{btn_id}"
@@ -102,12 +87,11 @@ def draw_button(drawlist: int | str, btn_id: str, color: tuple = (0, 0, 0, 0),
     return tag
 
 
-def draw_all_buttons(drawlist: int | str, labels: dict[str, str] | None = None) -> dict[str, str]:
-    """Draw all buttons on the controller. Returns {btn_id: item_tag}."""
+def draw_all_buttons(drawlist: int | str) -> dict[str, str]:
+    """Draw all button hotspot overlays on the controller. Returns {btn_id: item_tag}."""
     tags = {}
     for btn_id in BUTTON_POSITIONS:
-        label_override = labels.get(btn_id) if labels else None
-        tags[btn_id] = draw_button(drawlist, btn_id, label_override=label_override)
+        tags[btn_id] = draw_button(drawlist, btn_id)
     return tags
 
 
@@ -134,11 +118,6 @@ def update_button_color(drawlist: int | str, btn_id: str, color: tuple):
         dpg.configure_item(tag, fill=color)
     except Exception:
         pass  # Button may not be drawn yet during init
-
-
-def get_pair_color(pair_index: int) -> tuple:
-    """Get accent color for swap pair N (wraps around if >9 pairs)."""
-    return PAIR_COLORS[pair_index % len(PAIR_COLORS)]
 
 
 # Label offsets relative to button center (dx, dy)

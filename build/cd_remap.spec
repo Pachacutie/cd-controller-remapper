@@ -1,7 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('D:\\Games\\Workshop\\CD_REMAPPER\\assets\\controller.png', 'assets')]
+SPEC_DIR = os.path.dirname(os.path.abspath(SPECPATH))
+PROJECT_ROOT = os.path.dirname(SPEC_DIR)
+
+datas = [(os.path.join(PROJECT_ROOT, 'assets', 'controller.png'), 'assets')]
 binaries = []
 hiddenimports = ['dearpygui', 'XInput', 'cd_remap', 'cd_remap.gui', 'cd_remap.tui', 'cd_remap.actions', 'cd_remap.contexts', 'cd_remap.presets', 'cd_remap.gamepad', 'cd_remap.controller_draw', 'cd_remap.remap', 'cd_remap.vendor', 'cd_remap.vendor.paz_parse', 'cd_remap.vendor.paz_crypto', 'cd_remap.vendor.paz_repack', 'cd_remap.vendor.paz_patcher', 'cd_remap.vendor.hashlittle', 'cd_remap.vendor.papgt_manager', 'cd_remap.asset_util']
 tmp_ret = collect_all('dearpygui')
@@ -11,8 +15,8 @@ datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 
 a = Analysis(
-    ['D:\\Games\\Workshop\\CD_REMAPPER\\tools\\cd_remap_entry.py'],
-    pathex=['D:\\Games\\Workshop\\CD_REMAPPER\\tools'],
+    [os.path.join(PROJECT_ROOT, 'tools', 'cd_remap_entry.py')],
+    pathex=[os.path.join(PROJECT_ROOT, 'tools')],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,

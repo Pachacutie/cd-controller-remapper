@@ -213,7 +213,7 @@ class RemapGUI:
 
         if btn and btn in CLICKABLE_BUTTONS:
             base = self._get_button_color(btn)
-            hover_color = COLOR_HOVER if base == COLOR_DEFAULT else tuple(min(255, c + 60) for c in base[:3]) + (255,)
+            hover_color = COLOR_HOVER if base == COLOR_DEFAULT else tuple(min(255, c + 60) for c in base[:3]) + (min(255, base[3] + 40),)
             update_button_color(self.drawlist, btn, hover_color)
             self.hovered_button = btn
             # Show full action name in status bar
