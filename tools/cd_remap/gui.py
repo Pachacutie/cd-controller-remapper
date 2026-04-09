@@ -1,4 +1,6 @@
 """Dear PyGui main window — action-based controller remapping."""
+import json
+import os
 import dearpygui.dearpygui as dpg
 from pathlib import Path
 import threading
@@ -51,6 +53,33 @@ BUTTON_DISPLAY = {
 COLOR_CHANGED = (0, 200, 200, 255)
 
 
+def _last_applied_path() -> Path:
+    appdata = os.environ.get("APPDATA", "")
+    base = Path(appdata) / "cd_remap" if appdata else Path.home() / ".cd_remap"
+    return base / "last_applied.json"
+
+
+def _save_last_applied(assignments: dict[str, dict[str, str]]):
+    path = _last_applied_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(assignments))
+
+
+def _load_last_applied() -> dict[str, dict[str, str]] | None:
+    path = _last_applied_path()
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _delete_last_applied():
+    path = _last_applied_path()
+    path.unlink(missing_ok=True)
+
+
 class RemapGUI:
     def __init__(self, game_dir: Path):
         self.game_dir = game_dir
@@ -64,14 +93,25 @@ class RemapGUI:
 
         # Action assignments per context: {context: {action_name: button_id}}
         self.assignments: dict[str, dict[str, str]] = {}
+        self.applied_assignments: dict[str, dict[str, str]] = {}
         for ctx in ALL_CONTEXTS:
             self.assignments[ctx] = get_defaults(ctx)
+            self.applied_assignments[ctx] = dict(self.assignments[ctx])
+
+        saved = _load_last_applied()
+        if saved:
+            for ctx in ALL_CONTEXTS:
+                if ctx in saved:
+                    for action, btn in saved[ctx].items():
+                        if action in self.assignments[ctx]:
+                            self.assignments[ctx] = auto_swap(self.assignments[ctx], action, btn)
+                    self.applied_assignments[ctx] = dict(self.assignments[ctx])
 
     def _get_changed_buttons(self) -> set[str]:
-        """Buttons that differ from default in the active tab."""
-        defaults = get_defaults(self.active_tab)
+        """Buttons that differ from last-applied state in the active tab."""
+        baseline = self.applied_assignments[self.active_tab]
         current = self.assignments[self.active_tab]
-        return {current[a] for a in current if current[a] != defaults.get(a)}
+        return {current[a] for a in current if current[a] != baseline.get(a)}
 
     def _on_tab_change(self, sender, app_data):
         # DPG may pass integer ID or string tag — resolve via alias
@@ -526,6 +566,7 @@ class RemapGUI:
         dpg.bind_theme(global_theme)
         self._refresh_action_list()
         self._refresh_presets()
+        self._refresh_controller()
 
         dpg.create_viewport(title=f"CD Controller Remapper v{VERSION}", width=800, height=550)
         dpg.setup_dearpygui()
@@ -557,8 +598,16 @@ class RemapGUI:
                     r = self._progress["result"]
                     if "affected" in r:
                         self._set_status(f"Applied! {r['affected']} bindings remapped.")
+                        for ctx in ALL_CONTEXTS:
+                            self.applied_assignments[ctx] = dict(self.assignments[ctx])
+                        self._refresh_controller()
+                        _save_last_applied(self.assignments)
                     else:
                         self._set_status(f"Undo: {r.get('message', 'Done')}")
+                        for ctx in ALL_CONTEXTS:
+                            self.applied_assignments[ctx] = dict(get_defaults(ctx))
+                        _delete_last_applied()
+                        self._refresh_controller()
                 self._progress.clear()
             elif self._progress.get("phase"):
                 total = self._progress["total_bytes"]
