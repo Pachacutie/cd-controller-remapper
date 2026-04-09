@@ -355,6 +355,19 @@ class RemapGUI:
         except Exception as e:
             self._set_status(f"Error: {e}")
 
+    def _on_change_game_dir(self):
+        dpg.configure_item("dir_dialog", show=True)
+
+    def _on_dir_selected(self, sender, app_data):
+        selected = Path(app_data["file_path_name"])
+        if not (selected / "0012" / "0.pamt").exists():
+            self._set_status(f"Not a valid Crimson Desert install: {selected}")
+            return
+        self.game_dir = selected
+        self._set_status(f"Game directory: {self.game_dir}")
+        if dpg.does_item_exist("game_dir_label"):
+            dpg.set_value("game_dir_label", str(self.game_dir))
+
     def _set_status(self, msg: str):
         if dpg.does_item_exist("status_text"):
             dpg.set_value("status_text", msg)
@@ -369,6 +382,23 @@ class RemapGUI:
                 dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (50, 50, 55))
                 dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 4)
                 dpg.add_theme_style(dpg.mvStyleVar_WindowRounding, 6)
+
+        # Directory picker
+        with dpg.file_dialog(label="Select Crimson Desert Install",
+                             tag="dir_dialog", show=False, directory_selector=True,
+                             width=600, height=400, callback=self._on_dir_selected):
+            pass
+
+        # Settings modal
+        with dpg.window(label="Settings", modal=True, show=False,
+                        tag="settings_modal", width=500, height=120, no_resize=True):
+            dpg.add_text("Game Directory:")
+            with dpg.group(horizontal=True):
+                dpg.add_text(str(self.game_dir), tag="game_dir_label", color=(180, 180, 180))
+                dpg.add_button(label="Browse...", callback=self._on_change_game_dir)
+            dpg.add_spacer(height=5)
+            dpg.add_button(label="Close",
+                           callback=lambda: dpg.configure_item("settings_modal", show=False))
 
         # Save modal
         with dpg.window(label="Save Profile", modal=True, show=False,
@@ -436,6 +466,9 @@ class RemapGUI:
                 dpg.add_button(label="Save", callback=self._on_save)
                 dpg.add_button(label="Apply", callback=self._on_apply)
                 dpg.add_button(label="Undo All", callback=self._on_undo)
+                dpg.add_spacer(width=20)
+                dpg.add_button(label="Settings",
+                               callback=lambda: dpg.configure_item("settings_modal", show=True))
 
             dpg.add_text(
                 f"Ready - {self.game_dir}",
