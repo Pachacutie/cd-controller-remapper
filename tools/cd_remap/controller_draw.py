@@ -14,76 +14,61 @@ PAIR_COLORS = [
     (255, 200, 150, 255),  # peach
 ]
 
-COLOR_DEFAULT = (80, 80, 80, 255)
-COLOR_BORDER = (160, 160, 160, 255)
-COLOR_HOVER = (140, 140, 140, 255)
-COLOR_SELECTED = (255, 255, 255, 255)
+COLOR_DEFAULT = (0, 0, 0, 0)          # Transparent — image shows through
+COLOR_BORDER = (0, 0, 0, 0)           # No border on hotspots
+COLOR_HOVER = (180, 180, 180, 60)     # Subtle white glow
+COLOR_SELECTED = (255, 255, 255, 90)  # Brighter selection indicator
 COLOR_LABEL = (180, 180, 180, 255)
 COLOR_BODY = (45, 45, 50, 255)
 COLOR_BODY_BORDER = (90, 90, 100, 255)
 
 # Button positions relative to drawlist origin (0,0 = top-left)
-# Drawlist size: 450 x 300
+# Drawlist size: 500 x 358
 BUTTON_POSITIONS = {
     # Face buttons — right cluster
-    "buttonA": {"x": 330, "y": 195, "r": 16, "shape": "circle", "label": "A"},
-    "buttonB": {"x": 362, "y": 163, "r": 16, "shape": "circle", "label": "B"},
-    "buttonX": {"x": 298, "y": 163, "r": 16, "shape": "circle", "label": "X"},
-    "buttonY": {"x": 330, "y": 131, "r": 16, "shape": "circle", "label": "Y"},
+    "buttonA": {"x": 323, "y": 192, "r": 16, "shape": "circle", "label": "A"},
+    "buttonB": {"x": 353, "y": 162, "r": 16, "shape": "circle", "label": "B"},
+    "buttonX": {"x": 293, "y": 162, "r": 16, "shape": "circle", "label": "X"},
+    "buttonY": {"x": 323, "y": 132, "r": 16, "shape": "circle", "label": "Y"},
     # Shoulder buttons
-    "buttonLB": {"x": 80, "y": 52, "w": 60, "h": 24, "shape": "rect", "label": "LB"},
-    "buttonRB": {"x": 310, "y": 52, "w": 60, "h": 24, "shape": "rect", "label": "RB"},
+    "buttonLB": {"x": 82, "y": 48, "w": 56, "h": 22, "shape": "rect", "label": "LB"},
+    "buttonRB": {"x": 312, "y": 48, "w": 56, "h": 22, "shape": "rect", "label": "RB"},
     # Triggers
-    "buttonLT": {"x": 80, "y": 20, "w": 60, "h": 24, "shape": "rect", "label": "LT"},
-    "buttonRT": {"x": 310, "y": 20, "w": 60, "h": 24, "shape": "rect", "label": "RT"},
+    "buttonLT": {"x": 82, "y": 18, "w": 56, "h": 22, "shape": "rect", "label": "LT"},
+    "buttonRT": {"x": 312, "y": 18, "w": 56, "h": 22, "shape": "rect", "label": "RT"},
     # Stick clicks (small circles inside stick outlines)
-    "buttonLS": {"x": 150, "y": 145, "r": 10, "shape": "circle", "label": "LS"},
-    "buttonRS": {"x": 280, "y": 215, "r": 10, "shape": "circle", "label": "RS"},
+    "buttonLS": {"x": 163, "y": 148, "r": 12, "shape": "circle", "label": "LS"},
+    "buttonRS": {"x": 277, "y": 218, "r": 12, "shape": "circle", "label": "RS"},
     # Analog sticks (outer rings — visual only, not clickable)
-    "leftstick": {"x": 150, "y": 145, "r": 28, "shape": "ring", "label": "L"},
-    "rightstick": {"x": 280, "y": 215, "r": 28, "shape": "ring", "label": "R"},
+    "leftstick": {"x": 163, "y": 148, "r": 30, "shape": "ring", "label": "L"},
+    "rightstick": {"x": 277, "y": 218, "r": 30, "shape": "ring", "label": "R"},
     # D-pad
-    "padU": {"x": 138, "y": 197, "w": 22, "h": 22, "shape": "rect", "label": "^"},
-    "padD": {"x": 138, "y": 241, "w": 22, "h": 22, "shape": "rect", "label": "v"},
-    "padL": {"x": 116, "y": 219, "w": 22, "h": 22, "shape": "rect", "label": "<"},
-    "padR": {"x": 160, "y": 219, "w": 22, "h": 22, "shape": "rect", "label": ">"},
+    "padU": {"x": 147, "y": 194, "w": 20, "h": 20, "shape": "rect", "label": "^"},
+    "padD": {"x": 147, "y": 234, "w": 20, "h": 20, "shape": "rect", "label": "v"},
+    "padL": {"x": 127, "y": 214, "w": 20, "h": 20, "shape": "rect", "label": "<"},
+    "padR": {"x": 167, "y": 214, "w": 20, "h": 20, "shape": "rect", "label": ">"},
     # Meta
-    "select": {"x": 190, "y": 135, "w": 30, "h": 18, "shape": "rect", "label": "Sel"},
-    "start": {"x": 230, "y": 135, "w": 30, "h": 18, "shape": "rect", "label": "Sta"},
+    "select": {"x": 188, "y": 130, "w": 28, "h": 18, "shape": "rect", "label": "Sel"},
+    "start": {"x": 234, "y": 130, "w": 28, "h": 18, "shape": "rect", "label": "Sta"},
 }
 
 # Buttons that are clickable (excludes analog stick rings which are visual)
 CLICKABLE_BUTTONS = [b for b in BUTTON_POSITIONS if BUTTON_POSITIONS[b]["shape"] != "ring"]
 
 
-def draw_controller_body(drawlist: int | str):
-    """Draw the controller body outline."""
-    # Main body — rounded rectangle
-    dpg.draw_rectangle(
-        (30, 70), (420, 280),
-        color=COLOR_BODY_BORDER, fill=COLOR_BODY,
-        rounding=30, parent=drawlist,
-    )
-    # Left grip
-    dpg.draw_rectangle(
-        (30, 150), (90, 290),
-        color=COLOR_BODY_BORDER, fill=COLOR_BODY,
-        rounding=20, parent=drawlist,
-    )
-    # Right grip
-    dpg.draw_rectangle(
-        (360, 150), (420, 290),
-        color=COLOR_BODY_BORDER, fill=COLOR_BODY,
-        rounding=20, parent=drawlist,
+def draw_controller_image(drawlist: int | str, texture_tag: str):
+    """Draw the controller image as the drawlist background."""
+    dpg.draw_image(
+        texture_tag, (0, 0), (500, 358),
+        parent=drawlist,
     )
 
 
-def draw_button(drawlist: int | str, btn_id: str, color: tuple = COLOR_DEFAULT,
-                border: tuple = COLOR_BORDER, label_override: str | None = None) -> int | str:
-    """Draw a single button. Returns the drawn item tag for later color updates."""
+def draw_button(drawlist: int | str, btn_id: str, color: tuple = (0, 0, 0, 0),
+                border: tuple = (0, 0, 0, 0), label_override: str | None = None) -> int | str:
+    """Draw a transparent hotspot overlay for a button. Returns the item tag."""
     pos = BUTTON_POSITIONS[btn_id]
     tag = f"btn_{btn_id}"
-    label = label_override if label_override is not None else pos["label"]
 
     if pos["shape"] == "circle":
         dpg.draw_circle(
@@ -91,18 +76,10 @@ def draw_button(drawlist: int | str, btn_id: str, color: tuple = COLOR_DEFAULT,
             color=border, fill=color,
             tag=tag, parent=drawlist,
         )
-        # Center label text (approximate)
-        text_x = pos["x"] - len(label) * 3
-        text_y = pos["y"] - 6
-        dpg.draw_text(
-            (text_x, text_y), label,
-            color=(255, 255, 255, 255), size=11,
-            parent=drawlist,
-        )
     elif pos["shape"] == "ring":
         dpg.draw_circle(
             (pos["x"], pos["y"]), pos["r"],
-            color=border, fill=(0, 0, 0, 0),
+            color=(0, 0, 0, 0), fill=(0, 0, 0, 0),
             tag=tag, parent=drawlist,
         )
     elif pos["shape"] == "rect":
@@ -111,11 +88,6 @@ def draw_button(drawlist: int | str, btn_id: str, color: tuple = COLOR_DEFAULT,
             (x, y), (x + w, y + h),
             color=border, fill=color,
             rounding=4, tag=tag, parent=drawlist,
-        )
-        dpg.draw_text(
-            (x + 3, y + 2), label,
-            color=(255, 255, 255, 255), size=10,
-            parent=drawlist,
         )
 
     return tag
@@ -162,11 +134,11 @@ def get_pair_color(pair_index: int) -> tuple:
 
 # Label offsets relative to button center (dx, dy)
 _LABEL_OFFSETS = {
-    "buttonA": (18, 4), "buttonB": (18, 4), "buttonX": (-46, 4), "buttonY": (18, -2),
-    "buttonLB": (0, 26), "buttonRB": (0, 26),
-    "buttonLT": (0, 26), "buttonRT": (0, 26),
-    "buttonLS": (-14, 26), "buttonRS": (-14, 32),
-    "select": (-4, 20), "start": (-4, 20),
+    "buttonA": (20, 4), "buttonB": (20, 4), "buttonX": (-50, 4), "buttonY": (20, -2),
+    "buttonLB": (0, 24), "buttonRB": (0, 24),
+    "buttonLT": (0, 24), "buttonRT": (0, 24),
+    "buttonLS": (-16, 34), "buttonRS": (-16, 34),
+    "select": (-4, 22), "start": (-4, 22),
 }
 
 
