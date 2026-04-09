@@ -95,8 +95,7 @@ class RemapGUI:
         self._handle_button_input(btn)
 
     def _on_gamepad_button(self, btn: str):
-        if self.selected_action:
-            self._handle_button_input(btn)
+        self._handle_button_input(btn)
 
     def _handle_button_input(self, btn: str | None):
         if btn is None:
