@@ -20,19 +20,9 @@ Action-based controller remapper for Crimson Desert (no in-game remapping exists
 - Auto-detects Steam install via libraryfolders.vdf
 - CLI + TUI fallback
 - PyInstaller exe (14MB, --windowed)
-- 72 tests (70 pass + 2 skipped integration)
-
----
-
-## BLOCKER: Overlay patching does NOT work for inputmap_common.xml
-
-The overlay VFS (`0036/`) works for `.pastage` files (sleep mod) but the game does NOT load `inputmap_common.xml` from overlays. Likely loaded before VFS overlay system initializes.
-
-**Next approach:** In-place PAZ patching — modify the vanilla PAZ 0012 directly.
-- Research CDUMM's `paz_repack.py` at `D:\Games\Modding\Tools\CDUMM\src\cdumm\archive\paz_repack.py`
-- Extract XML → swap buttons → encrypt (ChaCha20) → compress (LZ4) → write back to PAZ 0012
-- Challenge: if patched data is larger (button names differ in length), may need full PAZ rebuild
-- PAPGT must be updated to reflect changed PAZ hash/size
+- In-place PAZ 0012 patching (ChaCha20 + LZ4, with PAMT/PAPGT integrity chain)
+- Backup/restore for undo (%APPDATA%/cd_remap/backup/)
+- 97 tests (95 pass + 2 skipped integration)
 
 ---
 
@@ -40,13 +30,11 @@ The overlay VFS (`0036/`) works for `.pastage` files (sleep mod) but the game do
 
 Proprietary (Pearl Abyss). No official mod support.
 
-**Overlay VFS:** `0036/` directory — game loads overlay entries over originals for MOST files. But NOT for XML input maps.
+**How remapping works:** Extract `inputmap_common.xml` from PAZ 0012 (ChaCha20 encrypted + LZ4 compressed, 220KB decompressed), swap `GamePad Key=` values per context (InputGroup LayerName), repack (LZ4 compress → ChaCha20 encrypt → write back to PAZ 0012), update PAMT index and PAPGT hash registry.
 
-**Overlay entries are NEVER encrypted.** Only vanilla PAZ files use ChaCha20. The `parse_pamt` heuristic (`.xml` = encrypted) only applies to vanilla archives.
+**Why not overlays:** The overlay VFS (`0036/`) works for `.pastage` files but NOT for `inputmap_common.xml` — the game either loads input maps before overlay init, or expects XML to be encrypted (overlays are never encrypted). In-place PAZ patching bypasses this.
 
-**How remapping should work:** Extract `inputmap_common.xml` from PAZ 0012 (encrypted + LZ4 compressed, 220KB decompressed), swap `GamePad Key=` values per context (InputGroup LayerName), write back to vanilla PAZ 0012.
-
-**Vendored CDUMM modules** (`tools/cd_remap/vendor/`): PAZ parsing, decryption, overlay building. From CDUMM v2.2.0.
+**Vendored CDUMM modules** (`tools/cd_remap/vendor/`): PAZ parsing, decryption, repacking, PAMT patching, PAPGT rebuilding. From CDUMM v2.2.0.
 
 **Key file details:**
 - `inputmap_common.xml`: 4,813 lines, 928 Input blocks, 1,254 GamePad entries
