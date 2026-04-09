@@ -120,7 +120,7 @@ class TestCountAffected:
 
 import os
 
-# --- Integration: extract + swap + verify ---
+# --- Integration: extract + swap + verify (requires game install) ---
 
 @pytest.mark.skipif(
     not os.path.exists(os.path.join(os.environ.get("CD_GAME_DIR", "."), "0012", "0.pamt")),
@@ -155,3 +155,50 @@ class TestIntegration:
         assert result["ok"]
         assert result["dry_run"]
         assert result["affected"] > 0
+
+
+# --- Integration: PAZ patching pipeline (synthetic game dir) ---
+
+class TestPazPatchIntegration:
+    def _setup_game_dir(self, tmp_path):
+        from fixtures import build_test_paz_pamt_papgt
+        game_dir = tmp_path / "game"
+        paz_dir = game_dir / "0012"
+        paz_dir.mkdir(parents=True)
+        meta_dir = game_dir / "meta"
+        meta_dir.mkdir()
+        xml = b'<Input Name="Attack"><GamePad Key="buttonA" Method="downonce"/></Input>\n' * 30
+        paz_bytes, pamt_bytes, papgt_bytes, _ = build_test_paz_pamt_papgt(xml)
+        (paz_dir / "0.paz").write_bytes(paz_bytes)
+        (paz_dir / "0.pamt").write_bytes(pamt_bytes)
+        (meta_dir / "0.papgt").write_bytes(papgt_bytes)
+        return game_dir, xml
+
+    def test_apply_and_extract(self, tmp_path, monkeypatch):
+        """Full pipeline: extract -> swap -> patch -> re-extract -> verify."""
+        from cd_remap.remap import extract_xml, _apply_patched_xml, apply_swaps
+        from cd_remap.vendor import paz_patcher
+        monkeypatch.setattr(paz_patcher, "_backup_dir", lambda: tmp_path / "backup")
+        game_dir, _ = self._setup_game_dir(tmp_path)
+        xml = extract_xml(game_dir)
+        assert b"buttonA" in xml
+        patched = apply_swaps(xml, {"buttonA": "buttonB", "buttonB": "buttonA"})
+        result = _apply_patched_xml(patched, game_dir)
+        assert result["ok"]
+        xml2 = extract_xml(game_dir)
+        assert b"buttonB" in xml2
+
+    def test_undo_restores_vanilla(self, tmp_path, monkeypatch):
+        """Patch -> undo -> extract shows vanilla content."""
+        from cd_remap.remap import extract_xml, _apply_patched_xml, apply_swaps, remove_remap
+        from cd_remap.vendor import paz_patcher
+        monkeypatch.setattr(paz_patcher, "_backup_dir", lambda: tmp_path / "backup")
+        game_dir, original_xml = self._setup_game_dir(tmp_path)
+        xml = extract_xml(game_dir)
+        patched = apply_swaps(xml, {"buttonA": "buttonB", "buttonB": "buttonA"})
+        _apply_patched_xml(patched, game_dir)
+        result = remove_remap(game_dir)
+        assert result["ok"]
+        xml3 = extract_xml(game_dir)
+        assert b"buttonA" in xml3
+        assert xml3 == original_xml
