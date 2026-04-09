@@ -75,8 +75,9 @@ def _apply_pamt_entry_update(
 ) -> None:
     """Patch a PAMT file-record bytearray in place.
 
-    Finds the 20-byte pattern (node_ref, offset, comp_size, orig_size, flags)
-    in the file-record section, then overwrites offset/comp_size/orig_size.
+    Searches for the 16-byte suffix (offset, comp_size, orig_size, flags)
+    of a file record, then overwrites offset/comp_size/orig_size.
+    Skips node_ref to avoid ambiguity — the 4-field suffix is unique enough.
 
     Raises ValueError if the file record is not found.
     """
@@ -125,9 +126,6 @@ def apply_paz_patch(patches: list[tuple[str, bytes]], game_dir: Path) -> dict:
 
     pamt_bytes = bytearray((game_dir / PAZ_FOLDER / "0.pamt").read_bytes())
     paz_count = struct.unpack_from("<I", pamt_bytes, 4)[0]
-
-    # Track which PAZ files were modified (for hash update)
-    modified_paz: dict[int, bytes] = {}
 
     for target, xml_bytes, entry in resolved:
         paz_path = Path(entry.paz_file)

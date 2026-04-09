@@ -174,6 +174,25 @@ class TestPazPatchIntegration:
         (meta_dir / "0.papgt").write_bytes(papgt_bytes)
         return game_dir, xml
 
+    def _setup_dual_xml_game_dir(self, tmp_path):
+        """Build a synthetic game dir with both inputmap_common.xml and inputmap.xml."""
+        from fixtures import build_multi_file_paz
+        game_dir = tmp_path / "game"
+        paz_dir = game_dir / "0012"
+        paz_dir.mkdir(parents=True)
+        meta_dir = game_dir / "meta"
+        meta_dir.mkdir()
+        common = b'<InputGroup LayerName="UIMainMenu"><Input Name="Menu"><GamePad Key="buttonA" Method="downonce"/></Input></InputGroup>\n' * 15
+        override = b'<InputGroup LayerName="Action"><Input Name="Attack"><GamePad Key="buttonA" Method="press"/></Input></InputGroup>\n' * 15
+        paz_bytes, pamt_bytes, papgt_bytes = build_multi_file_paz([
+            ("ui/inputmap_common.xml", common),
+            ("ui/inputmap.xml", override),
+        ])
+        (paz_dir / "0.paz").write_bytes(paz_bytes)
+        (paz_dir / "0.pamt").write_bytes(pamt_bytes)
+        (meta_dir / "0.papgt").write_bytes(papgt_bytes)
+        return game_dir, common, override
+
     def test_apply_and_extract(self, tmp_path, monkeypatch):
         """Full pipeline: extract -> swap -> patch -> re-extract -> verify."""
         from cd_remap.remap import extract_xml, apply_swaps, TARGET_FILE
@@ -210,3 +229,29 @@ class TestPazPatchIntegration:
         xml3 = extract_xml(game_dir)
         assert b"buttonA" in xml3
         assert xml3 == original_xml
+
+    def test_dual_xml_apply_and_extract(self, tmp_path, monkeypatch):
+        """Full pipeline with both XML files: extract -> swap -> patch -> verify both."""
+        from cd_remap.remap import extract_both_xmls, apply_swaps
+        from cd_remap.vendor.paz_patcher import apply_paz_patch
+        from cd_remap.vendor import paz_patcher
+        from cd_remap import remap
+        monkeypatch.setattr(paz_patcher, "_backup_dir", lambda: tmp_path / "backup")
+        monkeypatch.setattr(remap, "_backup_dir", lambda: tmp_path / "backup")
+        game_dir, _, _ = self._setup_dual_xml_game_dir(tmp_path)
+
+        common, override = extract_both_xmls(game_dir)
+        assert b"buttonA" in common and b"buttonA" in override
+
+        swaps = {"buttonA": "buttonB", "buttonB": "buttonA"}
+        patched_common = apply_swaps(common, swaps)
+        patched_override = apply_swaps(override, swaps)
+        result = apply_paz_patch(
+            [("ui/inputmap_common.xml", patched_common), ("ui/inputmap.xml", patched_override)],
+            game_dir,
+        )
+        assert result["ok"]
+
+        common2, override2 = extract_both_xmls(game_dir)
+        assert b"buttonB" in common2 and b"buttonA" not in common2
+        assert b"buttonB" in override2 and b"buttonA" not in override2
