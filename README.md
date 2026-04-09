@@ -12,15 +12,16 @@ Instead of cryptic button swaps, you see actual game actions (Sprint, Dodge, Jum
 - **Interactive controller diagram** — click buttons or use your gamepad
 - **Built-in presets** — Soulslike, Southpaw, Trigger Swap
 - **Custom profiles** — save and load your own layouts
+- **Progress bar** — real-time progress during Apply/Undo (no more GUI freeze)
+- **Remembers your mappings** — reopens with your last-applied remap
 - **Safe** — backs up vanilla files before patching; undo restores originals
-- **Undo** — one click restores all original bindings
 
 ## Quick Start
 
-1. Download `cd_remap.exe` from [Releases](https://github.com/Pachacutie/cd-controller-remapper/releases)
+1. Download `cd_remap.exe` from [Releases](https://github.com/Pachacutie/cd-controller-remapper/releases/latest)
 2. **Windows SmartScreen warning:** The exe is not code-signed, so Windows will block it. To unblock: right-click `cd_remap.exe` → Properties → check **Unblock** at the bottom → OK. Then run it normally.
 3. Pick a preset or click actions to remap them
-4. Click **Apply**
+4. Click **Apply** — a progress bar shows while game files are patched
 5. Launch Crimson Desert
 
 To undo: reopen the tool and click **Undo All**.
@@ -86,7 +87,7 @@ Undo restores all files from backup.
 
 ```bash
 pip install pytest
-python -m pytest tests/ -v    # 98 tests
+python -m pytest tests/ -v    # 111 tests
 ```
 
 ## License
