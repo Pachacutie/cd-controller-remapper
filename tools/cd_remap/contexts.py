@@ -8,6 +8,7 @@ CONTEXT_LAYERS = {
         "UIHud_1", "UIHud_2", "UIHud_3", "UIHud_4",
         "UIHud_HighPriority", "Action", "ActionKeyByCode", "QuickSlot",
         "QTE", "MiniGameWithAction", "GimmickInput",
+        "CharacterMove", "Camera",
     },
     "menus": {
         "UIMainMenu", "UIPopUp1", "UIPopUp2",
