@@ -22,7 +22,8 @@ Action-based controller remapper for Crimson Desert (no in-game remapping exists
 - PyInstaller exe (14MB, --windowed)
 - In-place PAZ 0012 patching (ChaCha20 + LZ4, with PAMT/PAPGT integrity chain)
 - Backup/restore for undo (%APPDATA%/cd_remap/backup/)
-- 97 tests (95 pass + 2 skipped integration)
+- 98 tests (96 pass + 2 skipped integration)
+- BLOCKER: PyInstaller EXE corrupts PAZ files (bundled lz4/cryptography C extension mismatch). CLI/source work perfectly. Plan: `docs/superpowers/plans/2026-04-09-pyinstaller-fix.md`
 
 ---
 
