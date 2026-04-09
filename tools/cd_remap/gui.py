@@ -27,16 +27,15 @@ from .presets import (
     save_profile_v3,
     load_profile_v3,
     list_profiles,
-    delete_profile,
 )
+from .asset_util import asset_path
 from .controller_draw import (
     CLICKABLE_BUTTONS,
-    draw_controller_body,
+    draw_controller_image,
     draw_all_buttons,
     draw_all_action_labels,
     hit_test,
     update_button_color,
-    get_pair_color,
     COLOR_DEFAULT,
     COLOR_HOVER,
     COLOR_SELECTED,
@@ -50,7 +49,7 @@ BUTTON_DISPLAY = {
     "select": "Select", "start": "Start",
 }
 
-COLOR_CHANGED = (0, 200, 200, 255)
+COLOR_CHANGED = (0, 200, 200, 80)
 
 
 def _last_applied_path() -> Path:
@@ -131,7 +130,7 @@ class RemapGUI:
 
     def _on_controller_click(self, sender, app_data):
         mouse_pos = dpg.get_drawing_mouse_pos()
-        if not (0 <= mouse_pos[0] <= 450 and 0 <= mouse_pos[1] <= 300):
+        if not (0 <= mouse_pos[0] <= 500 and 0 <= mouse_pos[1] <= 358):
             return
         btn = hit_test(mouse_pos[0], mouse_pos[1])
         self._handle_button_input(btn)
@@ -199,7 +198,7 @@ class RemapGUI:
 
     def _on_mouse_move(self, sender, app_data):
         mouse_pos = dpg.get_drawing_mouse_pos()
-        in_drawlist = 0 <= mouse_pos[0] <= 450 and 0 <= mouse_pos[1] <= 300
+        in_drawlist = 0 <= mouse_pos[0] <= 500 and 0 <= mouse_pos[1] <= 358
         if not in_drawlist:
             if self.hovered_button:
                 self._unhover()
@@ -214,7 +213,7 @@ class RemapGUI:
 
         if btn and btn in CLICKABLE_BUTTONS:
             base = self._get_button_color(btn)
-            hover_color = COLOR_HOVER if base == COLOR_DEFAULT else tuple(min(255, c + 60) for c in base[:3]) + (255,)
+            hover_color = COLOR_HOVER if base == COLOR_DEFAULT else tuple(min(255, c + 60) for c in base[:3]) + (min(255, base[3] + 40),)
             update_button_color(self.drawlist, btn, hover_color)
             self.hovered_button = btn
             # Show full action name in status bar
@@ -452,8 +451,19 @@ class RemapGUI:
             self._progress["error"] = str(e)
         self._progress["done"] = True
 
+    def _load_controller_texture(self):
+        """Load the controller image as a DPG static texture."""
+        img_path = str(asset_path("controller.png"))
+        width, height, channels, data = dpg.load_image(img_path)
+        with dpg.texture_registry():
+            dpg.add_static_texture(
+                width, height, data,
+                tag="controller_texture",
+            )
+
     def build(self):
         dpg.create_context()
+        self._load_controller_texture()
 
         with dpg.theme() as global_theme:
             with dpg.theme_component(dpg.mvAll):
@@ -533,9 +543,10 @@ class RemapGUI:
                 # Right: controller diagram
                 with dpg.child_window(width=-1, height=-60):
                     labels = get_button_action_labels(self.active_tab, None)
-                    self.drawlist = dpg.add_drawlist(width=450, height=300, tag="controller_drawlist")
-                    draw_controller_body(self.drawlist)
-                    draw_all_buttons(self.drawlist, labels)
+                    self.drawlist = dpg.add_drawlist(width=500, height=358, tag="controller_drawlist")
+                    draw_controller_image(self.drawlist, "controller_texture")
+                    draw_all_buttons(self.drawlist)
+                    draw_all_action_labels(self.drawlist, labels)
 
                     with dpg.handler_registry():
                         dpg.add_mouse_click_handler(callback=self._on_controller_click)
