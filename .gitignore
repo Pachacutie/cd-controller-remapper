@@ -18,7 +18,14 @@ extracted/
 *.pamt
 *.pabg
 
-# Superpowers
+# Internal notes — never commit to public repo
+CLAUDE.md
+AGENTS.md
+.claude/
+docs/superpowers/
+docs/internal/
+docs/*audit*.md
+docs/*review*.md
 .superpowers/
 
 # Build artifacts
