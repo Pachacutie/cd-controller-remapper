@@ -18,6 +18,10 @@ Instead of cryptic button swaps, you see actual game actions (Sprint, Dodge, Jum
 - **Button tooltips** — hover any bottom-bar button to see what it does
 - **Remembers your mappings** — reopens with your last-applied remap
 - **Safe** — backs up vanilla files before patching; undo restores originals
+- **Rollback on failure** — if patching fails mid-write, all files are automatically restored from backup
+- **Backup safety** — backups are bound to the game directory they were created for; prevents cross-install restore mistakes
+- **Profile validation** — saved profiles are validated on load; rejects corrupted or malformed button assignments
+- **Context collision detection** — detects conflicting remaps between Combat and Horse tabs before applying
 
 ## Quick Start
 
@@ -39,7 +43,7 @@ To undo: reopen the tool and click **Undo All**.
 
 ## Running from Source
 
-Requires Python 3.12+, [Dear PyGui](https://github.com/hoffstadt/DearPyGui), and [XInput-Python](https://github.com/Zuzu-Typ/XInput-Python).
+Requires Python 3.12+, [Dear PyGui](https://github.com/hoffstadt/DearPyGui), [XInput-Python](https://github.com/Zuzu-Typ/XInput-Python), and [lz4](https://github.com/python-lz4/python-lz4).
 
 ```bash
 git clone https://github.com/Pachacutie/cd-controller-remapper.git
@@ -90,7 +94,7 @@ Undo restores all files from backup.
 
 ```bash
 pip install pytest
-python -m pytest tests/ -v    # 114 tests
+python -m pytest tests/ -v    # 131 tests
 ```
 
 ## License
