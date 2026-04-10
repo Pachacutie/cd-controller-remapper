@@ -10,9 +10,12 @@ Instead of cryptic button swaps, you see actual game actions (Sprint, Dodge, Jum
 - **Three context tabs** — Combat (16 actions), Menus (8), Horse (7)
 - **Auto-swap** — reassigning an action automatically moves the displaced action
 - **Xbox controller diagram** — real controller image with interactive hotspot overlays
+- **Leader-line labels** — action names in columns outside the controller, connected by lines to their buttons
+- **Interactive hover & selection** — hover highlights labels and buttons in blue; swapped buttons stay gold until applied
 - **Built-in presets** — Soulslike, Southpaw, Trigger Swap
 - **Custom profiles** — save and load your own layouts
 - **Progress bar** — real-time progress during Apply/Undo (no more GUI freeze)
+- **Button tooltips** — hover any bottom-bar button to see what it does
 - **Remembers your mappings** — reopens with your last-applied remap
 - **Safe** — backs up vanilla files before patching; undo restores originals
 
