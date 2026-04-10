@@ -31,10 +31,16 @@ from .presets import (
 from .asset_util import asset_path
 from .controller_draw import (
     CLICKABLE_BUTTONS,
+    DRAWLIST_W,
+    DRAWLIST_H,
     draw_controller_image,
     draw_all_buttons,
     draw_all_action_labels,
     hit_test,
+    label_hit_test,
+    highlight_label,
+    unhighlight_label,
+    select_label,
     update_button_color,
     COLOR_DEFAULT,
     COLOR_HOVER,
@@ -49,7 +55,7 @@ BUTTON_DISPLAY = {
     "select": "Select", "start": "Start",
 }
 
-COLOR_CHANGED = (0, 200, 200, 140)
+COLOR_CHANGED = (255, 180, 0, 200)
 
 
 def _last_applied_path() -> Path:
@@ -126,13 +132,16 @@ class RemapGUI:
         self.selected_action = action_name
         btn = self.assignments[self.active_tab][action_name]
         update_button_color(self.drawlist, btn, COLOR_SELECTED)
+        select_label(btn)
         self._set_status(f"Press a button for {action_name}...")
 
     def _on_controller_click(self, sender, app_data):
         mouse_pos = dpg.get_drawing_mouse_pos()
-        if not (0 <= mouse_pos[0] <= 500 and 0 <= mouse_pos[1] <= 358):
+        if not (0 <= mouse_pos[0] <= DRAWLIST_W and 0 <= mouse_pos[1] <= DRAWLIST_H):
             return
         btn = hit_test(mouse_pos[0], mouse_pos[1])
+        if not btn:
+            btn = label_hit_test(mouse_pos[0], mouse_pos[1])
         self._handle_button_input(btn)
 
     def _on_gamepad_button(self, btn: str):
@@ -153,6 +162,7 @@ class RemapGUI:
                 if assigned_btn == btn:
                     self.selected_action = action_name
                     update_button_color(self.drawlist, btn, COLOR_SELECTED)
+                    select_label(btn)
                     self._set_status(f"Press a button for {action_name}...")
                     return
             return
@@ -196,15 +206,26 @@ class RemapGUI:
             self._refresh_controller()
             self._set_status("Cancelled.")
 
+    def _selected_button(self) -> str | None:
+        """Return the button currently selected for swap, if any."""
+        if not self.selected_action:
+            return None
+        return self.assignments[self.active_tab].get(self.selected_action)
+
     def _on_mouse_move(self, sender, app_data):
         mouse_pos = dpg.get_drawing_mouse_pos()
-        in_drawlist = 0 <= mouse_pos[0] <= 500 and 0 <= mouse_pos[1] <= 358
+        in_drawlist = 0 <= mouse_pos[0] <= DRAWLIST_W and 0 <= mouse_pos[1] <= DRAWLIST_H
         if not in_drawlist:
             if self.hovered_button:
                 self._unhover()
             return
 
+        # Check button hover
         btn = hit_test(mouse_pos[0], mouse_pos[1])
+        # Check label hover (treat as hovering its button)
+        if not btn:
+            btn = label_hit_test(mouse_pos[0], mouse_pos[1])
+
         if btn == self.hovered_button:
             return
 
@@ -212,11 +233,14 @@ class RemapGUI:
             self._unhover()
 
         if btn and btn in CLICKABLE_BUTTONS:
-            base = self._get_button_color(btn)
-            hover_color = COLOR_HOVER if base == COLOR_DEFAULT else tuple(min(255, c + 60) for c in base[:3]) + (min(255, base[3] + 40),)
-            update_button_color(self.drawlist, btn, hover_color)
+            # Don't override selection highlight with hover
+            sel = self._selected_button()
+            if btn != sel:
+                base = self._get_button_color(btn)
+                hover_color = COLOR_HOVER if base == COLOR_DEFAULT else tuple(min(255, c + 60) for c in base[:3]) + (min(255, base[3] + 40),)
+                update_button_color(self.drawlist, btn, hover_color)
+                highlight_label(btn)
             self.hovered_button = btn
-            # Show full action name in status bar
             current = self.assignments[self.active_tab]
             for action_name, assigned_btn in current.items():
                 if assigned_btn == btn:
@@ -227,8 +251,15 @@ class RemapGUI:
 
     def _unhover(self):
         if self.hovered_button:
-            update_button_color(self.drawlist, self.hovered_button,
-                                self._get_button_color(self.hovered_button))
+            sel = self._selected_button()
+            if self.hovered_button == sel:
+                # Restore selection colors, not default
+                update_button_color(self.drawlist, self.hovered_button, COLOR_SELECTED)
+                select_label(self.hovered_button)
+            else:
+                update_button_color(self.drawlist, self.hovered_button,
+                                    self._get_button_color(self.hovered_button))
+                unhighlight_label(self.hovered_button)
             self.hovered_button = None
 
     def _get_button_color(self, btn_id: str) -> tuple:
@@ -239,10 +270,13 @@ class RemapGUI:
 
     def _refresh_controller(self):
         self.hovered_button = None
+        changed = self._get_changed_buttons()
         for btn_id in CLICKABLE_BUTTONS:
             update_button_color(self.drawlist, btn_id, self._get_button_color(btn_id))
         labels = get_button_action_labels(self.active_tab, self.assignments[self.active_tab])
         draw_all_action_labels(self.drawlist, labels)
+        for btn_id in changed:
+            select_label(btn_id)
 
     def _refresh_action_list(self):
         if not dpg.does_item_exist("action_list_group"):
@@ -543,7 +577,7 @@ class RemapGUI:
                 # Right: controller diagram
                 with dpg.child_window(width=-1, height=-60):
                     labels = get_button_action_labels(self.active_tab, None)
-                    self.drawlist = dpg.add_drawlist(width=500, height=358, tag="controller_drawlist")
+                    self.drawlist = dpg.add_drawlist(width=DRAWLIST_W, height=DRAWLIST_H, tag="controller_drawlist")
                     draw_controller_image(self.drawlist, "controller_texture")
                     draw_all_buttons(self.drawlist)
                     draw_all_action_labels(self.drawlist, labels)
@@ -562,12 +596,26 @@ class RemapGUI:
                 dpg.add_text(status, tag="gamepad_status", color=color)
                 dpg.add_spacer(width=20)
                 dpg.add_button(label="Reset", tag="btn_reset", callback=self._on_reset)
+                with dpg.tooltip("btn_reset"):
+                    dpg.add_text("Discard unapplied changes and revert\nto the last applied mappings")
+
                 dpg.add_button(label="Save", tag="btn_save", callback=self._on_save)
+                with dpg.tooltip("btn_save"):
+                    dpg.add_text("Save current mappings as a\nreusable profile")
+
                 dpg.add_button(label="Apply", tag="btn_apply", callback=self._on_apply)
+                with dpg.tooltip("btn_apply"):
+                    dpg.add_text("Write current mappings to the\ngame files (patches PAZ)")
+
                 dpg.add_button(label="Undo All", tag="btn_undo", callback=self._on_undo)
+                with dpg.tooltip("btn_undo"):
+                    dpg.add_text("Restore vanilla game bindings\nand remove all patches")
+
                 dpg.add_spacer(width=20)
                 dpg.add_button(label="Settings", tag="btn_settings",
                                callback=lambda: dpg.configure_item("settings_modal", show=True))
+                with dpg.tooltip("btn_settings"):
+                    dpg.add_text("Set game install directory")
 
             dpg.add_text(
                 f"Ready - {self.game_dir}",
@@ -579,7 +627,7 @@ class RemapGUI:
         self._refresh_presets()
         self._refresh_controller()
 
-        dpg.create_viewport(title=f"CD Controller Remapper v{VERSION}", width=800, height=550)
+        dpg.create_viewport(title=f"CD Controller Remapper v{VERSION}", width=960, height=550)
         dpg.setup_dearpygui()
         dpg.show_viewport()
         dpg.set_primary_window("main_window", True)
@@ -616,8 +664,10 @@ class RemapGUI:
                     else:
                         self._set_status(f"Undo: {r.get('message', 'Done')}")
                         for ctx in ALL_CONTEXTS:
-                            self.applied_assignments[ctx] = dict(get_defaults(ctx))
+                            self.assignments[ctx] = get_defaults(ctx)
+                            self.applied_assignments[ctx] = dict(self.assignments[ctx])
                         _delete_last_applied()
+                        self._refresh_action_list()
                         self._refresh_controller()
                 self._progress.clear()
             elif self._progress.get("phase"):
