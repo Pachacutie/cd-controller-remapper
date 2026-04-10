@@ -22,6 +22,7 @@ from .actions import (
     get_button_action_labels,
     get_defaults,
 )
+from .contexts import validate_swaps_contextual
 from .presets import (
     BUILTIN_PRESETS_V3,
     save_profile_v3,
@@ -389,23 +390,48 @@ class RemapGUI:
     def _on_apply(self):
         dpg.configure_item("apply_modal", show=True)
 
+    def _collect_unique_swaps(self) -> list[dict]:
+        """Collect, deduplicate, and validate swaps across all contexts."""
+        all_swaps = []
+        for ctx in ALL_CONTEXTS:
+            defaults = get_defaults(ctx)
+            swap_ctx = CONTEXT_TO_SWAP_CONTEXT[ctx]
+            swaps = diff_to_swaps(defaults, self.assignments[ctx], swap_ctx)
+            all_swaps.extend(swaps)
+
+        # Detect conflicting swaps: same (source, context) with different targets.
+        # Catches combat vs horse collisions (both map to "gameplay").
+        seen_targets: dict[tuple[str, str], str] = {}
+        for s in all_swaps:
+            key = (s["source"], s["context"])
+            prev = seen_targets.get(key)
+            if prev is not None and prev != s["target"]:
+                raise ValueError(
+                    f"Conflict: {s['source']} in '{s['context']}' is mapped to "
+                    f"both '{prev}' and '{s['target']}' "
+                    f"(combat and horse tabs disagree)"
+                )
+            seen_targets[key] = s["target"]
+
+        # Deduplicate identical swaps
+        dedup = set()
+        unique = []
+        for s in all_swaps:
+            k = (s["source"], s["target"], s["context"])
+            if k not in dedup:
+                dedup.add(k)
+                unique.append(s)
+
+        errors = validate_swaps_contextual(unique)
+        if errors:
+            raise ValueError("Swap validation failed:\n" + "\n".join(f"  - {e}" for e in errors))
+
+        return unique
+
     def _on_apply_confirm(self):
         dpg.configure_item("apply_modal", show=False)
         try:
-            all_swaps = []
-            for ctx in ALL_CONTEXTS:
-                defaults = get_defaults(ctx)
-                swap_ctx = CONTEXT_TO_SWAP_CONTEXT[ctx]
-                swaps = diff_to_swaps(defaults, self.assignments[ctx], swap_ctx)
-                all_swaps.extend(swaps)
-
-            seen = set()
-            unique_swaps = []
-            for s in all_swaps:
-                key = (s["source"], s["target"], s["context"])
-                if key not in seen:
-                    seen.add(key)
-                    unique_swaps.append(s)
+            unique_swaps = self._collect_unique_swaps()
 
             if not unique_swaps:
                 self._set_status("No changes to apply.")

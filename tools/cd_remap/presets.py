@@ -147,6 +147,22 @@ def save_profile_v3(
     return path
 
 
+def _validate_v3_profile(data: dict) -> None:
+    """Raise ValueError if a v3 profile contains invalid actions or buttons."""
+    from .actions import get_defaults
+    from .remap import VALID_BUTTONS
+
+    for ctx in ("combat", "menus", "horse"):
+        valid_actions = get_defaults(ctx)
+        for action, button in data.get(ctx, {}).items():
+            if action not in valid_actions:
+                raise ValueError(f"Unknown action '{action}' in context '{ctx}'")
+            if button not in VALID_BUTTONS:
+                raise ValueError(
+                    f"Invalid button '{button}' for action '{action}' in context '{ctx}'"
+                )
+
+
 def load_profile_v3(
     slug: str,
     profiles_dir: Path = DEFAULT_PROFILES_DIR,
@@ -180,4 +196,5 @@ def load_profile_v3(
     if "horse" not in data:
         data["horse"] = {}
 
+    _validate_v3_profile(data)
     return data

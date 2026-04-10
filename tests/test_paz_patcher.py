@@ -1,5 +1,6 @@
 """Tests for paz_patcher — PAMT binary patching and PAZ apply/remove."""
 import struct
+from pathlib import Path
 import pytest
 
 from cd_remap.vendor.paz_patcher import (
@@ -387,3 +388,109 @@ class TestProgressCallback:
                          progress_cb=lambda p, d, t: calls.append((p, d, t)))
         phases = {c[0] for c in calls}
         assert any("Restoring" in p for p in phases)
+
+
+# ── Backup manifest ─────────────────────────────────────────────────
+
+class TestBackupManifest:
+    def _setup(self, tmp_path, monkeypatch):
+        paz_bytes, pamt_bytes, papgt_bytes, _ = build_test_paz_pamt_papgt(
+            PLAINTEXT, TARGET_FILE, PAZ_FOLDER
+        )
+        game_dir = _write_game_dir(tmp_path / "game", paz_bytes, pamt_bytes, papgt_bytes)
+        backup = tmp_path / "backup"
+        monkeypatch.setattr("cd_remap.vendor.paz_patcher._backup_dir", lambda: backup)
+        return game_dir, backup, paz_bytes, pamt_bytes, papgt_bytes
+
+    def test_manifest_created_on_apply(self, tmp_path, monkeypatch):
+        import json
+        game_dir, backup, *_ = self._setup(tmp_path, monkeypatch)
+        apply_paz_patch([(TARGET_FILE, MODIFIED)], game_dir)
+        manifest = json.loads((backup / "manifest.json").read_text())
+        assert Path(manifest["game_dir"]).resolve() == game_dir.resolve()
+
+    def test_restore_same_dir_succeeds(self, tmp_path, monkeypatch):
+        game_dir, *_ = self._setup(tmp_path, monkeypatch)
+        apply_paz_patch([(TARGET_FILE, MODIFIED)], game_dir)
+        result = remove_paz_patch(game_dir)
+        assert result["ok"] is True
+
+    def test_restore_different_dir_returns_error(self, tmp_path, monkeypatch):
+        game_dir, backup, paz_bytes, pamt_bytes, papgt_bytes = self._setup(
+            tmp_path, monkeypatch
+        )
+        apply_paz_patch([(TARGET_FILE, MODIFIED)], game_dir)
+        game_dir_2 = _write_game_dir(
+            tmp_path / "game2", paz_bytes, pamt_bytes, papgt_bytes
+        )
+        result = remove_paz_patch(game_dir_2)
+        assert result["ok"] is False
+        assert "Backup was created for" in result["message"]
+
+    def test_manifest_not_overwritten_on_reapply(self, tmp_path, monkeypatch):
+        import json
+        game_dir, backup, *_ = self._setup(tmp_path, monkeypatch)
+        apply_paz_patch([(TARGET_FILE, MODIFIED)], game_dir)
+        original_manifest = (backup / "manifest.json").read_text()
+        # Re-apply — manifest should not be overwritten
+        apply_paz_patch([(TARGET_FILE, MODIFIED)], game_dir)
+        assert (backup / "manifest.json").read_text() == original_manifest
+
+    def test_legacy_backup_without_manifest_allowed(self, tmp_path, monkeypatch):
+        game_dir, backup, *_ = self._setup(tmp_path, monkeypatch)
+        apply_paz_patch([(TARGET_FILE, MODIFIED)], game_dir)
+        (backup / "manifest.json").unlink()
+        result = remove_paz_patch(game_dir)
+        assert result["ok"] is True
+
+
+# ── Rollback on failure ─────────────────────────────────────────────
+
+class TestRollbackOnFailure:
+    def _setup(self, tmp_path, monkeypatch):
+        paz_bytes, pamt_bytes, papgt_bytes, _ = build_test_paz_pamt_papgt(
+            PLAINTEXT, TARGET_FILE, PAZ_FOLDER
+        )
+        game_dir = _write_game_dir(tmp_path / "game", paz_bytes, pamt_bytes, papgt_bytes)
+        backup = tmp_path / "backup"
+        monkeypatch.setattr("cd_remap.vendor.paz_patcher._backup_dir", lambda: backup)
+        return game_dir, backup, paz_bytes, pamt_bytes, papgt_bytes
+
+    def test_papgt_rebuild_failure_restores_all(self, tmp_path, monkeypatch):
+        """If PAPGT rebuild fails, all files are restored from backup."""
+        from cd_remap.vendor.papgt_manager import PapgtManager
+        game_dir, _, orig_paz, orig_pamt, orig_papgt = self._setup(
+            tmp_path, monkeypatch
+        )
+        original_rebuild = PapgtManager.rebuild
+
+        def failing_rebuild(self_mgr, modified_pamts=None):
+            raise RuntimeError("Simulated PAPGT rebuild failure")
+
+        monkeypatch.setattr(PapgtManager, "rebuild", failing_rebuild)
+
+        with pytest.raises(RuntimeError, match="Simulated PAPGT rebuild failure"):
+            apply_paz_patch([(TARGET_FILE, MODIFIED)], game_dir)
+
+        # All files should be restored to originals
+        assert (game_dir / PAZ_FOLDER / "0.paz").read_bytes() == orig_paz
+        assert (game_dir / PAZ_FOLDER / "0.pamt").read_bytes() == orig_pamt
+        assert (game_dir / "meta" / "0.papgt").read_bytes() == orig_papgt
+
+    def test_pamt_hash_failure_restores_paz(self, tmp_path, monkeypatch):
+        """If PAMT hash computation fails, PAZ files are restored."""
+        game_dir, _, orig_paz, orig_pamt, orig_papgt = self._setup(
+            tmp_path, monkeypatch
+        )
+
+        def failing_hash(data):
+            raise RuntimeError("Simulated hash failure")
+
+        monkeypatch.setattr(
+            "cd_remap.vendor.paz_patcher.compute_pamt_hash", failing_hash
+        )
+
+        with pytest.raises(RuntimeError, match="Simulated hash failure"):
+            apply_paz_patch([(TARGET_FILE, MODIFIED)], game_dir)
+
+        assert (game_dir / PAZ_FOLDER / "0.paz").read_bytes() == orig_paz

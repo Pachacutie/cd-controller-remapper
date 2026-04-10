@@ -4,6 +4,7 @@ Usage:
     pip install pyinstaller
     python build/build_exe.py
 """
+import os
 import PyInstaller.__main__
 from pathlib import Path
 
@@ -22,6 +23,7 @@ PyInstaller.__main__.run([
     "--hidden-import", "dearpygui",
     "--collect-all", "dearpygui",
     "--collect-all", "lz4",
+    "--add-data", str(ROOT / "assets" / "controller.png") + os.pathsep + "assets",
     "--hidden-import", "XInput",
     "--hidden-import", "cd_remap",
     "--hidden-import", "cd_remap.gui",

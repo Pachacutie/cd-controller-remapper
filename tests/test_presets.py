@@ -129,3 +129,41 @@ class TestV3Format:
         data = json.loads((tmp_path / "minimal.json").read_text())
         assert data["menus"] == {}
         assert data["horse"] == {}
+
+
+class TestV3ProfileValidation:
+    def test_invalid_action_name_rejected(self, tmp_path):
+        from cd_remap.presets import load_profile_v3
+        data = {"format_version": "3.0", "name": "bad",
+                "combat": {"NonExistentAction": "buttonA"},
+                "menus": {}, "horse": {}}
+        (tmp_path / "bad.json").write_text(json.dumps(data))
+        with pytest.raises(ValueError, match="Unknown action"):
+            load_profile_v3("bad", profiles_dir=tmp_path)
+
+    def test_invalid_button_value_rejected(self, tmp_path):
+        from cd_remap.presets import load_profile_v3
+        data = {"format_version": "3.0", "name": "bad",
+                "combat": {"Sprint/Run": "fakeButton"},
+                "menus": {}, "horse": {}}
+        (tmp_path / "bad.json").write_text(json.dumps(data))
+        with pytest.raises(ValueError, match="Invalid button"):
+            load_profile_v3("bad", profiles_dir=tmp_path)
+
+    def test_valid_profile_passes(self, tmp_path):
+        from cd_remap.presets import save_profile_v3, load_profile_v3
+        assignments = {
+            "combat": {"Sprint/Run": "buttonB", "Dodge/Roll": "buttonA"},
+            "menus": {}, "horse": {},
+        }
+        save_profile_v3("valid", assignments, profiles_dir=tmp_path)
+        data = load_profile_v3("valid", profiles_dir=tmp_path)
+        assert data["combat"]["Sprint/Run"] == "buttonB"
+
+    def test_empty_contexts_pass(self, tmp_path):
+        from cd_remap.presets import load_profile_v3
+        data = {"format_version": "3.0", "name": "empty",
+                "combat": {}, "menus": {}, "horse": {}}
+        (tmp_path / "empty.json").write_text(json.dumps(data))
+        loaded = load_profile_v3("empty", profiles_dir=tmp_path)
+        assert loaded["combat"] == {}

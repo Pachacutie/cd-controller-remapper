@@ -24,6 +24,7 @@ extracted/
 # Build artifacts
 dist/
 build/pyinstaller_work/
+build/work/
 build/*.spec
 inputmap_common.xml
 extract_inputmap.py
